@@ -24,16 +24,29 @@ import time
 from pathlib import Path
 
 # Check GPU availability
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print(f"Using device: {device}")
 if torch.cuda.is_available():
+    device = torch.device('cuda')
+    print(f"Using device: {device}")
     print(f"GPU: {torch.cuda.get_device_name(0)}")
     print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+elif torch.backends.mps.is_available():
+    device = torch.device('mps')
+    print(f"Using device: {device}")
+    print("GPU: Apple M1 (MPS)")
+else:
+    device = torch.device('cpu')
+    print(f"Using device: {device}")
+    print("GPU: CPU only")
 
 class GravityReverseEngineer:
     """Main class for reverse engineering gravity from rotation curves."""
     
-    def __init__(self, gaia_data_path='gaia_sky_slices/all_sky_gaia.csv'):
+    def __init__(self, gaia_data_path='data/gaia_processed/gaia_processed_data.csv'):
+        # Handle relative paths when running from different directories
+        import os
+        if not os.path.exists(gaia_data_path):
+            # Try parent directory
+            gaia_data_path = os.path.join('..', gaia_data_path)
         self.gaia_data_path = gaia_data_path
         self.device = device
         
@@ -70,7 +83,7 @@ class GravityReverseEngineer:
         
         # Extract arrays
         self.R_data = df_filtered['R_kpc'].values
-        self.v_data = df_filtered['v_obs'].values
+        self.v_data = df_filtered['v_circ'].values  # Use circular velocity instead of v_obs
         self.sigma_v = df_filtered['sigma_v'].values
         
         # Calculate density at each point
@@ -226,6 +239,146 @@ class GravityTrainer:
         self.val_loader = DataLoader(val_dataset, batch_size=1024, shuffle=False)
         
         return train_dataset, val_dataset
+
+    def validate_model_physics(self):
+            """Validate that the model captures key physics before formula extraction."""
+            print("\n" + "="*60)
+            print("VALIDATING MODEL PHYSICS")
+            print("="*60)
+            
+            validation_passed = True
+            metrics = {}
+            
+            # Test 1: Cassini constraint
+            with torch.no_grad():
+                rho_saturn = torch.tensor([2.3e21], device=device)
+                R_saturn = torch.tensor([9.5e-6], device=device)  # AU in kpc
+                xi_saturn = self.model(rho_saturn, R_saturn).item()
+                cassini_deviation = abs(xi_saturn - 1.0)
+                
+            metrics['cassini_deviation'] = cassini_deviation
+            print(f"\n1. Cassini constraint:")
+            print(f"   ξ(Saturn) = {xi_saturn:.8f}")
+            print(f"   Deviation = {cassini_deviation:.2e}")
+            print(f"   Status: {'✓ PASS' if cassini_deviation < 1e-5 else '✗ FAIL'}")
+            if cassini_deviation > 1e-5:
+                validation_passed = False
+                
+            # Test 2: Galaxy edge enhancement
+            with torch.no_grad():
+                # Inner galaxy
+                rho_inner = torch.tensor([self.engineer.calculate_density(6.0)], device=device)
+                R_inner = torch.tensor([6.0], device=device)
+                xi_inner = self.model(rho_inner, R_inner).item()
+                
+                # Solar neighborhood
+                rho_solar = torch.tensor([self.engineer.calculate_density(8.0)], device=device)
+                R_solar = torch.tensor([8.0], device=device)
+                xi_solar = self.model(rho_solar, R_solar).item()
+                
+                # Galaxy edge
+                rho_edge = torch.tensor([self.engineer.calculate_density(15.0)], device=device)
+                R_edge = torch.tensor([15.0], device=device)
+                xi_edge = self.model(rho_edge, R_edge).item()
+                
+            metrics['xi_inner'] = xi_inner
+            metrics['xi_solar'] = xi_solar
+            metrics['xi_edge'] = xi_edge
+            
+            print(f"\n2. Galactic gradient:")
+            print(f"   ξ(6 kpc) = {xi_inner:.3f}")
+            print(f"   ξ(8 kpc) = {xi_solar:.3f}")
+            print(f"   ξ(15 kpc) = {xi_edge:.3f}")
+            
+            # Check for proper enhancement gradient
+            enhancement_gradient = xi_edge > xi_solar > xi_inner > 1.0
+            min_edge_enhancement = (xi_edge - 1.0) > 0.5  # At least 50% enhancement at edge
+            
+            print(f"   Gradient check: {'✓ PASS' if enhancement_gradient else '✗ FAIL'}")
+            print(f"   Edge enhancement: {(xi_edge-1)*100:.1f}% {'✓ PASS' if min_edge_enhancement else '✗ FAIL (need >50%)'}")
+            
+            if not enhancement_gradient or not min_edge_enhancement:
+                validation_passed = False
+                
+            # Test 3: Rotation curve fit quality
+            print(f"\n3. Rotation curve fit:")
+            
+            # Calculate predicted vs observed velocities
+            R_test = np.linspace(6, 18, 50)
+            v_newton = self.engineer.calculate_newtonian_velocity(R_test)
+            
+            with torch.no_grad():
+                R_tensor = torch.tensor(R_test, dtype=torch.float32).to(device)
+                rho_tensor = torch.tensor(self.engineer.calculate_density(R_test), dtype=torch.float32).to(device)
+                xi_pred = self.model(rho_tensor, R_tensor).cpu().numpy()
+            
+            v_model = v_newton * np.sqrt(xi_pred)
+            
+            # Compare to empirical data in same range
+            mask = (self.engineer.R_data >= 6) & (self.engineer.R_data <= 18)
+            R_emp = self.engineer.R_data[mask]
+            v_emp = self.engineer.v_data[mask]
+            
+            # Interpolate model to empirical points
+            v_model_at_data = np.interp(R_emp, R_test, v_model)
+            
+            # Calculate metrics
+            rmse = np.sqrt(np.mean((v_model_at_data - v_emp)**2))
+            relative_error = np.mean(np.abs(v_model_at_data - v_emp) / v_emp) * 100
+            
+            metrics['velocity_rmse'] = rmse
+            metrics['velocity_relative_error'] = relative_error
+            
+            print(f"   RMSE = {rmse:.1f} km/s")
+            print(f"   Mean relative error = {relative_error:.1f}%")
+            print(f"   Status: {'✓ PASS' if relative_error < 10 else '✗ FAIL (need <10%)'}")
+            
+            if relative_error > 10:
+                validation_passed = False
+                
+            # Test 4: Check if model learned non-trivial solution
+            print(f"\n4. Non-trivial solution check:")
+            
+            # Check variance in xi across parameter space
+            with torch.no_grad():
+                R_sample = torch.tensor(np.random.uniform(5, 20, 100), dtype=torch.float32).to(device)
+                rho_sample = torch.tensor(10**np.random.uniform(9, 13, 100), dtype=torch.float32).to(device)
+                xi_sample = self.model(rho_sample, R_sample).cpu().numpy()
+            
+            xi_variance = np.var(xi_sample)
+            xi_range = np.max(xi_sample) - np.min(xi_sample)
+            
+            metrics['xi_variance'] = xi_variance
+            metrics['xi_range'] = xi_range
+            
+            print(f"   ξ variance = {xi_variance:.4f}")
+            print(f"   ξ range = {xi_range:.3f}")
+            print(f"   Status: {'✓ PASS' if xi_variance > 0.01 else '✗ FAIL (model is too flat!)'}")
+            
+            if xi_variance < 0.01:
+                validation_passed = False
+                print("\n   ⚠️  Model has converged to trivial solution (ξ ≈ constant)")
+                
+            # Overall assessment
+            print("\n" + "="*60)
+            print(f"OVERALL VALIDATION: {'✓ PASSED' if validation_passed else '✗ FAILED'}")
+            print("="*60)
+            
+            if not validation_passed:
+                print("\n⚠️  Model needs more training or parameter tuning!")
+                print("Recommendations:")
+                if cassini_deviation > 1e-5:
+                    print("  - Increase Cassini constraint weight")
+                if not enhancement_gradient:
+                    print("  - Check learning rate and network architecture")
+                if xi_variance < 0.01:
+                    print("  - Model may be stuck in local minimum")
+                    print("  - Try different initialization or learning rate schedule")
+                if relative_error > 10:
+                    print("  - Train for more epochs")
+                    print("  - Adjust loss function weights")
+                    
+            return validation_passed, metrics
     
     def train(self, epochs=1000, cassini_weight=100.0):
         """Train the model."""
@@ -364,6 +517,167 @@ class GravityTrainer:
         
         return xi_mesh, R_mesh, rho_mesh
 
+        
+    def extract_physics_formulas(self):
+        """Extract multiple candidate gravity formulas from the trained model."""
+        print("\n" + "="*60)
+        print("EXTRACTING CANDIDATE GRAVITY FORMULAS")
+        print("="*60)
+        
+        formulas = []
+        
+        # Get neural network parameters
+        with torch.no_grad():
+            rho_c = 10**self.model.rho_c.item()
+            n = self.model.n_exp.item()
+            A = self.model.A_boost.item()
+        
+        print(f"\nBase NN parameters: ρ_c = {rho_c:.2e} M☉/kpc³, n = {n:.3f}, A = {A:.3f}")
+        
+        # Generate test data covering wide range
+        R_test = np.logspace(-3, 2, 200)  # 0.001 to 100 kpc (includes solar system)
+        rho_test = np.logspace(3, 23, 200)  # Wide density range
+        
+        # Test specific regions
+        regions = {
+            'Solar System': {'R': np.array([1e-5, 1e-4, 1e-3]), 'rho': np.array([1e21, 2.3e21, 1e22])},
+            'Galactic': {'R': np.linspace(5, 20, 50), 'rho': np.logspace(9, 13, 50)},
+            'Extreme': {'R': np.logspace(-6, 3, 100), 'rho': np.logspace(3, 25, 100)}
+        }
+        
+        # Evaluate model in each region
+        xi_data = {}
+        for region_name, region_data in regions.items():
+            R_mesh, rho_mesh = np.meshgrid(region_data['R'], region_data['rho'])
+            with torch.no_grad():
+                R_flat = torch.tensor(R_mesh.flatten(), dtype=torch.float32).to(device)
+                rho_flat = torch.tensor(rho_mesh.flatten(), dtype=torch.float32).to(device)
+                xi_flat = self.model(rho_flat, R_flat).cpu().numpy()
+            xi_data[region_name] = (R_mesh, rho_mesh, xi_flat.reshape(R_mesh.shape))
+        
+        # Formula 1: Modified MOND-like
+        print("\n1. Modified MOND-like formula:")
+        a0_eff = 1.2e-10  # m/s²
+        formula1 = {
+            'name': 'Modified MOND',
+            'formula': lambda rho, R: 1 + A * (1 - 1/(1 + (R * a0_eff * 3.086e16 / (4.302e-6 * rho * R**2))**0.5)),
+            'params': {'a0_eff': a0_eff, 'A': A},
+            'description': 'ξ = 1 + A * (1 - 1/(1 + (a/a0)^0.5))'
+        }
+        formulas.append(formula1)
+        
+        # Formula 2: Yukawa-like screening
+        print("\n2. Yukawa-like screening formula:")
+        lambda_screen = 10**((np.log10(rho_c) - 21) / 2)  # Screening length in kpc
+        formula2 = {
+            'name': 'Yukawa Screening',
+            'formula': lambda rho, R: 1 + A * np.exp(-R/lambda_screen) / (1 + (rho/rho_c)**n),
+            'params': {'lambda_screen': lambda_screen, 'rho_c': rho_c, 'n': n, 'A': A},
+            'description': f'ξ = 1 + {A:.2f} * exp(-R/{lambda_screen:.2e}) / (1 + (ρ/{rho_c:.2e})^{n:.2f})'
+        }
+        formulas.append(formula2)
+        
+        # Formula 3: Chameleon-like
+        print("\n3. Chameleon-like formula:")
+        M_pl = 2.4e18  # GeV
+        formula3 = {
+            'name': 'Chameleon',
+            'formula': lambda rho, R: 1 + A * (1 - np.tanh((rho/rho_c)**0.5)),
+            'params': {'rho_c': rho_c, 'A': A},
+            'description': f'ξ = 1 + {A:.2f} * (1 - tanh((ρ/{rho_c:.2e})^0.5))'
+        }
+        formulas.append(formula3)
+        
+        # Formula 4: f(R) gravity inspired
+        print("\n4. f(R) gravity inspired formula:")
+        R_curv_0 = 1e-30  # Curvature scale
+        formula4 = {
+            'name': 'f(R) Inspired',
+            'formula': lambda rho, R: 1 + A * R**2 / (R**2 + (rho/rho_c)**(-1/3)),
+            'params': {'rho_c': rho_c, 'A': A},
+            'description': f'ξ = 1 + {A:.2f} * R² / (R² + (ρ/{rho_c:.2e})^(-1/3))'
+        }
+        formulas.append(formula4)
+        
+        # Formula 5: Emergent gravity
+        print("\n5. Emergent gravity formula:")
+        a_D = 1e-10  # de Sitter acceleration
+        formula5 = {
+            'name': 'Emergent Gravity',
+            'formula': lambda rho, R: 1 + A * np.sqrt(1 + 4/(1 + (rho/rho_c)**2)) - 1,
+            'params': {'rho_c': rho_c, 'A': A, 'a_D': a_D},
+            'description': f'ξ = 1 + {A:.2f} * (√(1 + 4/(1 + (ρ/{rho_c:.2e})²)) - 1)'
+        }
+        formulas.append(formula5)
+        
+        # Validate each formula
+        print("\n" + "="*60)
+        print("VALIDATING CANDIDATE FORMULAS")
+        print("="*60)
+        
+        for formula in formulas:
+            print(f"\n{formula['name']}:")
+            print(f"  {formula['description']}")
+            
+            # Test Cassini constraint
+            rho_saturn = 2.3e21  # M☉/kpc³
+            R_saturn = 9.5e-6  # kpc (9.5 AU)
+            xi_cassini = formula['formula'](rho_saturn, R_saturn)
+            cassini_deviation = abs(xi_cassini - 1.0)
+            
+            # Test galactic edge
+            rho_edge = 1e10  # Typical edge density
+            R_edge = 15.0  # kpc
+            xi_edge = formula['formula'](rho_edge, R_edge)
+            
+            print(f"  Cassini: ξ = {xi_cassini:.8f} (deviation: {cassini_deviation:.2e})")
+            print(f"  Galactic edge: ξ = {xi_edge:.3f} (enhancement: {(xi_edge-1)*100:.1f}%)")
+            
+            # Score based on matching NN predictions
+            score = 0
+            with torch.no_grad():
+                test_points = 100
+                R_sample = np.random.uniform(5, 20, test_points)
+                rho_sample = 10**np.random.uniform(9, 13, test_points)
+                
+                R_tensor = torch.tensor(R_sample, dtype=torch.float32).to(device)
+                rho_tensor = torch.tensor(rho_sample, dtype=torch.float32).to(device)
+                xi_nn = self.model(rho_tensor, R_tensor).cpu().numpy()
+                xi_formula = formula['formula'](rho_sample, R_sample)
+                
+                mse = np.mean((xi_nn - xi_formula)**2)
+                score = 1 / (1 + mse)
+            
+            print(f"  NN match score: {score:.3f}")
+            formula['score'] = score
+            formula['cassini_ok'] = cassini_deviation < 1e-5
+        
+        # Sort by score
+        formulas.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Generate LaTeX
+        print("\n" + "="*60)
+        print("LATEX FORMULATIONS FOR PAPER")
+        print("="*60)
+        
+        for i, formula in enumerate(formulas[:3]):  # Top 3
+            if formula['cassini_ok']:
+                print(f"\n{i+1}. {formula['name']} (Score: {formula['score']:.3f}) ✓")
+                print("LaTeX:")
+                if formula['name'] == 'Modified MOND':
+                    print(r"  \xi = 1 + A \left(1 - \frac{1}{1 + \sqrt{a/a_0}}\right)")
+                elif formula['name'] == 'Yukawa Screening':
+                    print(r"  \xi = 1 + A \frac{e^{-R/\lambda}}{1 + (\rho/\rho_c)^n}")
+                elif formula['name'] == 'Chameleon':
+                    print(r"  \xi = 1 + A \left(1 - \tanh\sqrt{\rho/\rho_c}\right)")
+                elif formula['name'] == 'f(R) Inspired':
+                    print(r"  \xi = 1 + A \frac{R^2}{R^2 + (\rho/\rho_c)^{-1/3}}")
+                elif formula['name'] == 'Emergent Gravity':
+                    print(r"  \xi = 1 + A \left(\sqrt{1 + \frac{4}{1 + (\rho/\rho_c)^2}} - 1\right)")
+        
+        return formulas
+
+
 def visualize_results(engineer, model, trainer):
     """Create comprehensive visualizations."""
     print("\nGenerating visualizations...")
@@ -459,15 +773,137 @@ def visualize_results(engineer, model, trainer):
     ax.hexbin(engineer.R_data, v_residuals, gridsize=30, cmap='Blues')
     ax.axhline(y=0, color='r', linestyle='-', alpha=0.5)
     ax.set_xlabel('R (kpc)')
-    ax.set_ylabel('v_obs - v_model (km/s)')
+    ax.set_ylabel('v_circ - v_model (km/s)')
     ax.set_title('Velocity Residuals')
     ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('reverse_engineered_gravity.png', dpi=150)
-    print("Saved visualizations to reverse_engineered_gravity.png")
+    plt.savefig('plots/reverse_engineered_gravity.png', dpi=150)
+    print("Saved visualizations to plots/reverse_engineered_gravity.png")
     
     return fig
+
+def visualize_formulas(formulas, engineer, model):
+    """Visualize candidate gravity formulas."""
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    
+    # Test ranges
+    R_galactic = np.linspace(5, 20, 100)
+    R_solar = np.logspace(-6, -3, 100)  # AU scale in kpc
+    rho_galactic = engineer.calculate_density(R_galactic)
+    rho_solar = np.full_like(R_solar, 2.3e21)  # Solar system density
+    
+    # 1. Galactic scale comparison
+    ax = axes[0, 0]
+    for formula in formulas[:3]:
+        if formula['cassini_ok']:
+            xi_gal = formula['formula'](rho_galactic, R_galactic)
+            ax.plot(R_galactic, xi_gal, label=formula['name'], linewidth=2)
+    
+    # Add NN prediction
+    with torch.no_grad():
+        R_tensor = torch.tensor(R_galactic, dtype=torch.float32).to(device)
+        rho_tensor = torch.tensor(rho_galactic, dtype=torch.float32).to(device)
+        xi_nn = model(rho_tensor, R_tensor).cpu().numpy()
+    ax.plot(R_galactic, xi_nn, 'k--', label='Neural Network', linewidth=2)
+    
+    ax.set_xlabel('R (kpc)')
+    ax.set_ylabel('ξ')
+    ax.set_title('Galactic Scale Enhancement')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # 2. Solar system scale
+    ax = axes[0, 1]
+    for formula in formulas[:3]:
+        if formula['cassini_ok']:
+            xi_solar = formula['formula'](rho_solar, R_solar)
+            deviation = (xi_solar - 1) * 1e6  # Parts per million
+            ax.semilogx(R_solar * 206265, deviation, label=formula['name'], linewidth=2)
+    
+    ax.axhline(y=23, color='r', linestyle='--', label='Cassini limit')
+    ax.axhline(y=-23, color='r', linestyle='--')
+    ax.set_xlabel('R (AU)')
+    ax.set_ylabel('(ξ - 1) × 10⁶')
+    ax.set_title('Solar System Precision')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # 3. Density dependence
+    ax = axes[0, 2]
+    rho_range = np.logspace(5, 22, 200)
+    R_fixed = 8.0  # Solar radius
+    
+    for formula in formulas[:3]:
+        if formula['cassini_ok']:
+            xi_rho = formula['formula'](rho_range, R_fixed)
+            ax.loglog(rho_range, xi_rho - 1, label=formula['name'], linewidth=2)
+    
+    ax.axvline(x=2.3e21, color='b', linestyle=':', label='Saturn')
+    ax.set_xlabel('ρ (M☉/kpc³)')
+    ax.set_ylabel('ξ - 1')
+    ax.set_title('Density Screening')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # 4. Acceleration scale
+    ax = axes[1, 0]
+    for formula in formulas[:3]:
+        if formula['cassini_ok']:
+            # Calculate effective acceleration
+            a_newton = 4.302e-6 * rho_galactic * R_galactic  # GM/R²
+            xi_gal = formula['formula'](rho_galactic, R_galactic)
+            a_eff = a_newton * xi_gal
+            ax.loglog(a_newton * 3.086e13 / 3.154e7, xi_gal, label=formula['name'], linewidth=2)
+    
+    ax.axvline(x=1.2e-10, color='g', linestyle='--', label='a₀ (MOND)')
+    ax.set_xlabel('a_Newton (m/s²)')
+    ax.set_ylabel('ξ')
+    ax.set_title('Enhancement vs Acceleration')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # 5. Parameter space
+    ax = axes[1, 1]
+    R_mesh, rho_mesh = np.meshgrid(np.linspace(5, 20, 50), np.logspace(9, 13, 50))
+    
+    best_formula = formulas[0]
+    xi_mesh = best_formula['formula'](rho_mesh, R_mesh)
+    
+    im = ax.pcolormesh(R_mesh, rho_mesh, xi_mesh, shading='auto', cmap='viridis')
+    ax.set_yscale('log')
+    ax.set_xlabel('R (kpc)')
+    ax.set_ylabel('ρ (M☉/kpc³)')
+    ax.set_title(f"Best Formula: {best_formula['name']}")
+    plt.colorbar(im, ax=ax, label='ξ')
+    
+    # 6. Residuals
+    ax = axes[1, 2]
+    with torch.no_grad():
+        test_R = np.random.uniform(6, 18, 1000)
+        test_rho = engineer.calculate_density(test_R)
+        
+        R_tensor = torch.tensor(test_R, dtype=torch.float32).to(device)
+        rho_tensor = torch.tensor(test_rho, dtype=torch.float32).to(device)
+        xi_nn = model(rho_tensor, R_tensor).cpu().numpy()
+        
+        xi_formula = best_formula['formula'](test_rho, test_R)
+        residuals = (xi_formula - xi_nn) / xi_nn * 100
+        
+    ax.hexbin(test_R, residuals, gridsize=30, cmap='RdBu', vmin=-10, vmax=10)
+    ax.axhline(y=0, color='k', linestyle='-', alpha=0.5)
+    ax.set_xlabel('R (kpc)')
+    ax.set_ylabel('Formula vs NN (%)')
+    ax.set_title(f"{best_formula['name']} Residuals")
+    ax.set_ylim(-20, 20)
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig('plots/gravity_formulas_comparison.png', dpi=150)
+    print("\nSaved formula comparisons to plots/gravity_formulas_comparison.png")
+    
+    return fig
+
 
 def main():
     """Main execution function."""
@@ -490,7 +926,7 @@ def main():
     
     # Train
     start_time = time.time()
-    trainer.train_losses, trainer.val_losses = trainer.train(epochs=500, cassini_weight=1000.0)
+    trainer.train_losses, trainer.val_losses = trainer.train(epochs=50, cassini_weight=1000.0)
     train_time = time.time() - start_time
     print(f"\nTraining completed in {train_time:.1f} seconds")
     
@@ -507,7 +943,7 @@ def main():
         'R_mesh': R_mesh,
         'rho_mesh': rho_mesh,
         'baryon_params': engineer.baryon_params
-    }, 'reverse_engineered_gravity_model.pt')
+    }, 'data/reverse_engineered_gravity_model.pt')
     
     print("\n" + "="*60)
     print("REVERSE ENGINEERING COMPLETE!")

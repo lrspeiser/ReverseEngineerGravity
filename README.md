@@ -46,7 +46,20 @@ cd analysis
 python analyze_gaia_summary.py
 ```
 
-### 4. Run gravity reverse engineering
+### 4. Test the reverse engineering code (optional)
+```bash
+cd scripts
+python test_reverse_engineering.py
+```
+
+### 5. Performance testing (recommended)
+```bash
+cd scripts
+python performance_test.py          # Estimate training time and see sample results
+python device_comparison.py         # Compare M1 vs 5090 performance
+```
+
+### 6. Run gravity reverse engineering
 ```bash
 python reverse_engineer_gravity.py
 ```
@@ -98,6 +111,21 @@ This data is suitable for:
 - Calculates galactocentric coordinates
 - Creates distance-based summaries
 - Generates basic visualizations
+
+### `scripts/test_reverse_engineering.py`
+- Tests the reverse engineering code
+- Verifies data loading and processing
+- Runs short training to check functionality
+
+### `scripts/performance_test.py`
+- Estimates training time on different devices
+- Shows sample results from short training runs
+- Creates quick visualizations for validation
+
+### `scripts/device_comparison.py`
+- Compares M1 Mac vs expected 5090 performance
+- Benchmarks tensor operations
+- Provides training time estimates
 
 ### `analysis/analyze_gaia_summary.py`
 - Analyzes summary statistics
