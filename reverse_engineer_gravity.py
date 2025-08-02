@@ -200,8 +200,7 @@ class PhysicsInformedNN(nn.Module):
     def cassini_constraint(self):
         """Calculate Cassini constraint violation."""
         rho_saturn = torch.tensor([2.3e21], device=self.network[0].weight.device)
-        R_saturn = torch.tensor([9.5], device=self.network[0].weight.device)  # AU to kpc
-        
+        R_saturn = torch.tensor([9.5e-6], device=self.network[0].weight.device)  # AU to kpc        
         xi_saturn = self.forward(rho_saturn, R_saturn)
         cassini_violation = (xi_saturn - 1.0)**2 / (2.3e-5)**2
         
@@ -447,6 +446,10 @@ class GravityTrainer:
                     cassini = self.model.cassini_constraint().item()
                     print(f"  Cassini violation: {cassini:.2e}")
         
+        # Store for later access
+        self.train_losses = train_losses
+        self.val_losses = val_losses
+        
         return train_losses, val_losses
     
     def extract_formula(self):
@@ -518,25 +521,75 @@ class GravityTrainer:
         return xi_mesh, R_mesh, rho_mesh
 
         
-    def extract_physics_formulas(self):
+    def extract_physics_formulas(self, validation_metrics):
         """Extract multiple candidate gravity formulas from the trained model."""
         print("\n" + "="*60)
         print("EXTRACTING CANDIDATE GRAVITY FORMULAS")
         print("="*60)
         
+        # First check if we should even bother
+        if validation_metrics['xi_range'] < 0.1:
+            print("\n⚠️  Model shows insufficient variation in ξ!")
+            print("Cannot extract meaningful formulas from a flat model.")
+            print("Please train for more epochs or adjust hyperparameters.")
+            return []
+        
         formulas = []
         
-        # Get neural network parameters
+        # Get neural network parameters dynamically
         with torch.no_grad():
             rho_c = 10**self.model.rho_c.item()
             n = self.model.n_exp.item()
             A = self.model.A_boost.item()
+            
+            # Sample the model to understand its behavior
+            R_sample = np.logspace(-3, 1.5, 100)
+            rho_sample = np.logspace(8, 22, 100)
+            
+            # Get characteristic scales from model behavior
+            R_char_list = []
+            rho_char_list = []
+            
+            for rho_test in [1e9, 1e12, 1e15, 1e18, 1e21]:
+                R_tensor = torch.tensor(R_sample, dtype=torch.float32).to(device)
+                rho_tensor = torch.full_like(R_tensor, rho_test)
+                xi_values = self.model(rho_tensor, R_tensor).cpu().numpy()
+                
+                # Find where xi drops to half its maximum
+                xi_max = np.max(xi_values)
+                xi_half = (xi_max + 1) / 2
+                idx_half = np.argmin(np.abs(xi_values - xi_half))
+                if idx_half > 0 and idx_half < len(R_sample) - 1:
+                    R_char_list.append(R_sample[idx_half])
+                    
+            # Analyze density dependence
+            for R_test in [1.0, 5.0, 10.0, 15.0]:
+                R_tensor = torch.full((len(rho_sample),), R_test, dtype=torch.float32).to(device)
+                rho_tensor = torch.tensor(rho_sample, dtype=torch.float32).to(device)
+                xi_values = self.model(rho_tensor, R_tensor).cpu().numpy()
+                
+                # Find transition density
+                xi_mid = (np.max(xi_values) + np.min(xi_values)) / 2
+                idx_mid = np.argmin(np.abs(xi_values - xi_mid))
+                if idx_mid > 0 and idx_mid < len(rho_sample) - 1:
+                    rho_char_list.append(rho_sample[idx_mid])
+            
+            # Use medians as characteristic scales
+            R_char = np.median(R_char_list) if R_char_list else 10.0
+            rho_char = np.median(rho_char_list) if rho_char_list else rho_c
         
-        print(f"\nBase NN parameters: ρ_c = {rho_c:.2e} M☉/kpc³, n = {n:.3f}, A = {A:.3f}")
+        print(f"\nLearned NN parameters:")
+        print(f"  ρ_c = {rho_c:.2e} M☉/kpc³")
+        print(f"  n = {n:.3f}")
+        print(f"  A = {A:.3f}")
+        print(f"  R_characteristic ≈ {R_char:.1f} kpc")
+        print(f"  ρ_characteristic ≈ {rho_char:.2e} M☉/kpc³")
         
-        # Generate test data covering wide range
-        R_test = np.logspace(-3, 2, 200)  # 0.001 to 100 kpc (includes solar system)
-        rho_test = np.logspace(3, 23, 200)  # Wide density range
+        # Only proceed with formula generation if A > 0.1 (non-trivial enhancement)
+        if A < 0.1:
+            print(f"\n⚠️  Enhancement amplitude A = {A:.3f} is too small!")
+            print("Model hasn't learned significant gravity modifications.")
+            return []
         
         # Test specific regions
         regions = {
@@ -904,6 +957,46 @@ def visualize_formulas(formulas, engineer, model):
     
     return fig
 
+def continue_training(checkpoint_path, additional_epochs=450):
+    """Continue training from a saved checkpoint."""
+    print("="*60)
+    print("CONTINUING TRAINING FROM CHECKPOINT")
+    print("="*60)
+    
+    # Load checkpoint
+    checkpoint = torch.load(checkpoint_path)
+    
+    if checkpoint.get('status') == 'validated':
+        print("This model has already been validated!")
+        return
+    
+    # Initialize components
+    engineer = GravityReverseEngineer()
+    gaia_df = engineer.load_gaia_data()
+    
+    # Create and load model
+    model = PhysicsInformedNN(hidden_layers=[128, 64, 32])
+    model.load_state_dict(checkpoint['model_state_dict'])
+    
+    # Initialize trainer
+    trainer = GravityTrainer(engineer, model)
+    trainer.prepare_data()
+    
+    print(f"\nResuming from epoch {checkpoint['epochs_trained']}")
+    print(f"Training for {additional_epochs} more epochs...")
+    
+    # Continue training
+    trainer.train(epochs=additional_epochs, cassini_weight=1000.0)
+    
+    # Re-validate
+    validation_passed, validation_metrics = trainer.validate_model_physics()
+    
+    # Save updated model
+    if validation_passed:
+        print("\n✓ Model now passes validation!")
+        # Continue with formula extraction...
+    else:
+        print("\n⚠️  Model still needs more training.")
 
 def main():
     """Main execution function."""
@@ -924,26 +1017,87 @@ def main():
     trainer = GravityTrainer(engineer, model)
     trainer.prepare_data()
     
-    # Train
+# Train
     start_time = time.time()
     trainer.train_losses, trainer.val_losses = trainer.train(epochs=50, cassini_weight=1000.0)
     train_time = time.time() - start_time
     print(f"\nTraining completed in {train_time:.1f} seconds")
     
-    # Extract formula
-    xi_mesh, R_mesh, rho_mesh = trainer.extract_formula()
+    # Validate model physics
+    validation_passed, validation_metrics = trainer.validate_model_physics()
     
-    # Visualize
-    fig = visualize_results(engineer, model, trainer)
-    
-    # Save model
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'xi_mesh': xi_mesh,
-        'R_mesh': R_mesh,
-        'rho_mesh': rho_mesh,
-        'baryon_params': engineer.baryon_params
-    }, 'data/reverse_engineered_gravity_model.pt')
+    if not validation_passed:
+        print("\n" + "="*60)
+        print("⚠️  MODEL VALIDATION FAILED!")
+        print("="*60)
+        print("\nThe model has not learned the correct physics.")
+        print("Suggestions:")
+        print("1. Train for more epochs (try 500-1000)")
+        print("2. Adjust learning rate (current: 1e-3)")
+        print("3. Check data preprocessing")
+        print("4. Modify network architecture")
+        print("\nContinuing with visualization but skipping formula extraction...")
+        
+        # Still visualize to see what went wrong
+        fig = visualize_results(engineer, model, trainer)
+        
+        # Save checkpoint
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'validation_metrics': validation_metrics,
+            'epochs_trained': 50,
+            'status': 'needs_more_training'
+        }, 'data/reverse_engineered_gravity_checkpoint.pt')
+        
+        print("\nSaved checkpoint to data/reverse_engineered_gravity_checkpoint.pt")
+        print("Load this checkpoint and continue training with more epochs.")
+        
+    else:
+        print("\n✓ Model validation passed! Proceeding with formula extraction...")
+        
+        # Extract formula
+        xi_mesh, R_mesh, rho_mesh = trainer.extract_formula()
+        
+        # Extract physics formulas with validation metrics
+        formulas = trainer.extract_physics_formulas(validation_metrics)
+        
+        if formulas:
+            # Visualize
+            fig = visualize_results(engineer, model, trainer)
+            fig2 = visualize_formulas(formulas, engineer, model)
+            
+            # Save complete model
+            torch.save({
+                'model_state_dict': model.state_dict(),
+                'xi_mesh': xi_mesh,
+                'R_mesh': R_mesh,
+                'rho_mesh': rho_mesh,
+                'baryon_params': engineer.baryon_params,
+                'validation_metrics': validation_metrics,
+                'epochs_trained': 50,
+                'status': 'validated'
+            }, 'data/reverse_engineered_gravity_model.pt')
+            
+            # Save formulas
+            import json
+            formula_data = []
+            for formula in formulas[:5]:  # Top 5
+                formula_data.append({
+                    'name': formula['name'],
+                    'description': formula['description'],
+                    'params': {k: float(v) if isinstance(v, (int, float, np.number)) else v 
+                              for k, v in formula['params'].items()},
+                    'score': float(formula['score']),
+                    'cassini_ok': formula['cassini_ok']
+                })
+            
+            with open('data/gravity_formulas.json', 'w') as f:
+                json.dump(formula_data, f, indent=2)
+            
+            print("\nSaved validated formulas to data/gravity_formulas.json")
+        else:
+            print("\n⚠️  No valid formulas could be extracted from this model.")
+            print("The model needs significant improvement before formula extraction.")    
     
     print("\n" + "="*60)
     print("REVERSE ENGINEERING COMPLETE!")
