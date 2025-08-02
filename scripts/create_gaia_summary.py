@@ -255,8 +255,8 @@ class GaiaDataProcessor:
         ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig(f'{output_prefix}_summary_plots.png', dpi=150, bbox_inches='tight')
-        print(f"Saved visualizations to {output_prefix}_summary_plots.png")
+        plt.savefig(f'../plots/{output_prefix}_summary_plots.png', dpi=150, bbox_inches='tight')
+        print(f"Saved visualizations to ../plots/{output_prefix}_summary_plots.png")
         
         return fig
 
@@ -270,11 +270,11 @@ def main():
     processor = GaiaDataProcessor()
     
     # Process Gaia data
-    data_path = 'gaia_sky_slices/all_sky_gaia.csv'
+    data_path = '../gaia_sky_slices/all_sky_gaia.csv'
     df_processed = processor.process_gaia_data(data_path)
     
     # Create summary
-    summary_path = 'gaia_distance_summary.csv'
+    summary_path = '../data/gaia_summary/gaia_distance_summary.csv'
     bin_stats = processor.create_detailed_summary(df_processed, summary_path)
     
     # Create visualizations
@@ -292,16 +292,16 @@ def main():
     print(bin_stats[['R_center', 'n_stars', 'v_circ_mean', 'density_stars_kpc3']].to_string(index=False))
     
     # Save processed data for future use
-    df_processed.to_csv('gaia_processed_data.csv', index=False)
-    print(f"\nSaved processed data to gaia_processed_data.csv")
+    df_processed.to_csv('../data/gaia_processed/gaia_processed_data.csv', index=False)
+    print(f"\nSaved processed data to ../data/gaia_processed/gaia_processed_data.csv")
     
     print("\n" + "="*60)
     print("SUMMARY GENERATION COMPLETE!")
     print("="*60)
     print(f"Files created:")
     print(f"  - {summary_path}: Distance bin statistics")
-    print(f"  - gaia_processed_data.csv: Full processed dataset")
-    print(f"  - gaia_summary_plots.png: Visualizations")
+    print(f"  - ../data/gaia_processed/gaia_processed_data.csv: Full processed dataset")
+    print(f"  - ../plots/gaia_summary_plots.png: Visualizations")
 
 if __name__ == '__main__':
     main() 

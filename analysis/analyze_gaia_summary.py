@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-def analyze_gaia_summary(summary_file='gaia_distance_summary.csv'):
+def analyze_gaia_summary(summary_file='../data/gaia_summary/gaia_distance_summary.csv'):
     """Analyze the Gaia summary data and print insights."""
     
     print("="*80)
@@ -157,8 +157,8 @@ def create_detailed_plots(df, output_prefix='gaia_analysis'):
     ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(f'{output_prefix}_detailed_plots.png', dpi=150, bbox_inches='tight')
-    print(f"\n📈 Saved detailed analysis plots to {output_prefix}_detailed_plots.png")
+    plt.savefig(f'../plots/{output_prefix}_detailed_plots.png', dpi=150, bbox_inches='tight')
+    print(f"\n📈 Saved detailed analysis plots to ../plots/{output_prefix}_detailed_plots.png")
     
     return fig
 
@@ -251,10 +251,10 @@ def main():
     print(report)
     
     # Save report to file
-    with open('gaia_insights_report.txt', 'w') as f:
+    with open('../reports/gaia_insights_report.txt', 'w') as f:
         f.write(report)
     
-    print(f"\n📄 Saved insights report to gaia_insights_report.txt")
+    print(f"\n📄 Saved insights report to ../reports/gaia_insights_report.txt")
     
     print("\n" + "="*80)
     print("ANALYSIS COMPLETE!")
