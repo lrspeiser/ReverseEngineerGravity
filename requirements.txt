@@ -1,7 +1,4 @@
-jax[cuda12_pip]
-jaxlib[cuda12_pip]
-flax
-optax
+cupy-cuda12x
 numpy
 pandas
 matplotlib

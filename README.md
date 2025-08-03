@@ -1,17 +1,17 @@
-# Reverse Engineer Gravity - Gaia Data Analysis (JAX GPU)
+# Reverse Engineer Gravity - Gaia Data Analysis (CuPy GPU)
 
-This project analyzes Gaia satellite data to understand the distribution of stars across different regions of the Milky Way and reverse engineer gravitational physics using JAX GPU-accelerated machine learning.
+This project analyzes Gaia satellite data to understand the distribution of stars across different regions of the Milky Way and reverse engineer gravitational physics using CuPy GPU-accelerated machine learning on Windows with RTX 5090.
 
 ## 📁 Project Structure
 
 ```
 ReverseEngineerGravity/
 ├── README.md                           # This file
-├── reverse_engineer_gravity.py         # Main gravity reverse engineering script (JAX GPU)
-├── requirements.txt                    # JAX dependencies with CUDA support
-├── install_jax.sh                      # Linux/Mac JAX installation script
-├── install_jax.bat                     # Windows JAX installation script
-├── test_jax_setup.py                   # GPU verification script
+├── reverse_engineer_gravity_cupy.py    # Main gravity reverse engineering script (CuPy GPU)
+├── reverse_engineer_gravity.py         # Original JAX version (for reference)
+├── requirements.txt                    # CuPy dependencies with CUDA support
+├── install_cupy.bat                    # Windows CuPy installation script
+├── test_cupy_setup.py                  # GPU verification script
 ├── gaia_sky_slices/                    # Raw Gaia data files
 │   ├── all_sky_gaia.csv               # Main Gaia dataset
 │   └── processed_*.parquet            # Processed sky slices
@@ -20,6 +20,7 @@ ReverseEngineerGravity/
 │   │   └── gaia_distance_summary.csv  # Distance bin statistics
 │   └── gaia_processed/                # Full processed datasets
 │       └── gaia_processed_data.csv    # Complete processed Gaia data
+│   └── reverse_engineered_gravity_model_cupy.pkl # Trained CuPy model
 ├── scripts/                           # Data processing scripts
 │   └── create_gaia_summary.py         # Creates distance-based summaries
 ├── analysis/                          # Analysis and visualization scripts
@@ -27,30 +28,26 @@ ReverseEngineerGravity/
 ├── plots/                             # Generated visualizations
 │   ├── gaia_summary_plots.png         # Basic summary plots
 │   ├── gaia_analysis_detailed_plots.png # Detailed analysis plots
-│   └── reverse_engineered_gravity.png # Gravity model visualizations
+│   ├── reverse_engineered_gravity.png # Gravity model visualizations (JAX)
+│   └── reverse_engineered_gravity_cupy.png # Gravity model visualizations (CuPy)
 └── reports/                           # Analysis reports
     └── gaia_insights_report.txt       # Comprehensive insights report
 ```
 
 ## 🚀 Quick Start
 
-### 1. Install JAX with CUDA support (for RTX 5090)
+### 1. Install CuPy with CUDA support (for RTX 5090)
 ```bash
 # On Windows:
-install_jax.bat
-
-# On Linux/Mac:
-chmod +x install_jax.sh
-./install_jax.sh
+pip install cupy-cuda12x
 
 # Or manually:
-pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-pip install flax optax numpy pandas matplotlib scipy scikit-learn
+pip install cupy-cuda12x numpy pandas matplotlib scipy scikit-learn
 ```
 
 ### 2. Verify GPU setup
 ```bash
-python -c "import jax; print('JAX devices:', jax.devices())"
+python -c "import cupy as cp; print('CuPy version:', cp.__version__); print('CUDA available:', cp.cuda.is_available()); print('Device count:', cp.cuda.runtime.getDeviceCount())"
 ```
 
 ### 3. Create Gaia data summary
@@ -67,14 +64,15 @@ python analyze_gaia_summary.py
 
 ### 5. Run gravity reverse engineering (5000 epochs on GPU)
 ```bash
-python reverse_engineer_gravity.py
+python reverse_engineer_gravity_cupy.py
 ```
 
 ## 🎯 **What This Does**
 
 The main script performs **physics-informed neural network training** to reverse engineer gravity from Gaia rotation curve data:
 
-- **5000 epochs** of GPU-accelerated training
+- **5000 epochs** of GPU-accelerated training on RTX 5090
+- **CuPy optimization**: Native CUDA support for Windows
 - **Physics constraints**: Cassini spacecraft precision tests
 - **Galactic validation**: Ensures model works across Milky Way scales
 - **Formula extraction**: Converts neural network to analytical formulas
@@ -114,13 +112,14 @@ This data is suitable for:
 ### Data Files:
 - `data/gaia_summary/gaia_distance_summary.csv`: Distance bin statistics
 - `data/gaia_processed/gaia_processed_data.csv`: Full processed dataset
-- `data/reverse_engineered_gravity_model.pkl`: Trained JAX model
+- `data/reverse_engineered_gravity_model_cupy.pkl`: Trained CuPy model
 - `data/gravity_formulas.json`: Extracted analytical formulas
 
 ### Visualizations:
 - `plots/gaia_summary_plots.png`: Basic summary plots
 - `plots/gaia_analysis_detailed_plots.png`: Detailed analysis plots
-- `plots/reverse_engineered_gravity.png`: Gravity model results
+- `plots/reverse_engineered_gravity.png`: Gravity model results (JAX)
+- `plots/reverse_engineered_gravity_cupy.png`: Gravity model results (CuPy)
 
 ### Reports:
 - `reports/gaia_insights_report.txt`: Comprehensive analysis report
@@ -154,22 +153,28 @@ This data is suitable for:
 - Creates detailed visualizations
 - Produces comprehensive reports
 
-### `reverse_engineer_gravity.py` (Main Script)
-- **JAX GPU-accelerated** physics-informed neural network
+### `reverse_engineer_gravity_cupy.py` (Main Script)
+- **CuPy GPU-accelerated** physics-informed neural network
 - **5000 epochs** of training on RTX 5090 GPU
+- **Native CUDA support**: Optimized for Windows with RTX 5090
 - **Physics constraints**: Cassini spacecraft precision tests
 - **Galactic validation**: Ensures model works across Milky Way scales
 - **Formula extraction**: Converts neural network to analytical formulas
 - **Multiple theories**: Tests MOND, Yukawa, Chameleon, and other gravity models
 - **Real-time validation**: Checks model physics during training
 
+### `reverse_engineer_gravity.py` (JAX Version)
+- **JAX GPU-accelerated** version for reference
+- Same functionality but using JAX framework
+- Useful for comparison and cross-validation
+
 ## 📋 Requirements
 
 ### Core Dependencies
 - **Python 3.10+**
-- **JAX with CUDA 12 support** (optimized for RTX 5090)
-- **Flax** (neural network library for JAX)
-- **Optax** (optimization library for JAX)
+- **CuPy with CUDA 12 support** (optimized for RTX 5090)
+- **NumPy** (for CPU operations and data handling)
+- **Custom neural network implementation** (optimized for CuPy)
 
 ### Data Science Stack
 - **NumPy, Pandas, Matplotlib**
@@ -180,13 +185,14 @@ This data is suitable for:
 - **NVIDIA GPU** with CUDA 12 support
 - **RTX 5090 recommended** for optimal performance
 - **16GB+ VRAM** for large batch training
+- **Windows 11** with latest NVIDIA drivers
 
 ## 🔄 Workflow
 
-1. **Setup**: Install JAX with CUDA support → Verify GPU setup → Test installation
+1. **Setup**: Install CuPy with CUDA support → Verify GPU setup → Test installation
 2. **Data Processing**: Raw Gaia data → Processed coordinates → Distance summaries
 3. **Analysis**: Summary statistics → Regional insights → Visualizations
-4. **Physics**: Processed data → JAX neural network training → Gravity reverse engineering
+4. **Physics**: Processed data → CuPy neural network training → Gravity reverse engineering
 5. **Validation**: Physics constraints → Galactic validation → Formula extraction
 
 ## 📝 Notes
@@ -198,7 +204,7 @@ This data is suitable for:
 - Stars are concentrated in a thin disk structure
 
 ### Performance Notes
-- **JAX JIT compilation** provides significant speedup on GPU
+- **CuPy native CUDA** provides excellent speedup on RTX 5090
 - **5000 epochs** typically sufficient for convergence
 - **Batch size 1024** optimized for RTX 5090 memory
 - **Physics validation** ensures model learns correct behavior
@@ -206,23 +212,23 @@ This data is suitable for:
 
 ### GPU Optimization
 - **CUDA 12** provides best performance for RTX 5090
-- **Memory management** handled automatically by JAX
-- **Compiled training** reduces Python overhead
-- **Functional programming** enables better optimization
+- **Memory management** handled automatically by CuPy
+- **Native CUDA kernels** reduce Python overhead
+- **Optimized for Windows** with RTX 5090 architecture
 
-## 🏗️ **JAX Architecture**
+## 🏗️ **CuPy Architecture**
 
 ### Neural Network Design
-- **Flax Module**: Physics-informed neural network with learnable parameters
+- **Custom CuPy Module**: Physics-informed neural network with learnable parameters
 - **Input**: [log(ρ), R/R_sun, z/kpc] - density, radius, height
 - **Output**: ξ enhancement factor for gravity
 - **Architecture**: 3 hidden layers [128, 64, 32] with ReLU activation
 - **Physics Parameters**: ρ_c (critical density), n (exponent), A (amplitude)
 
 ### Training System
-- **Optimizer**: AdamW with weight decay and learning rate scheduling
+- **Optimizer**: Custom Adam-like optimizer with weight decay
 - **Loss Function**: MSE + Cassini constraint + physical regularization
-- **JIT Compilation**: All training steps compiled for maximum speed
+- **Native CUDA**: All operations run directly on GPU for maximum speed
 - **Batch Processing**: Efficient GPU memory usage with dynamic batching
 
 ### Physics Constraints
@@ -239,11 +245,15 @@ This data is suitable for:
 
 ## 🔧 **Troubleshooting**
 
-### JAX Installation Issues
+### CuPy Installation Issues
 ```bash
-# If JAX installation fails, try:
+# If CuPy installation fails, try:
 pip install --upgrade pip setuptools wheel
-pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install cupy-cuda12x
+
+# For different CUDA versions:
+pip install cupy-cuda11x  # For CUDA 11.x
+pip install cupy-cuda12x  # For CUDA 12.x
 ```
 
 ### GPU Not Detected
@@ -251,15 +261,15 @@ pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-re
 # Check CUDA installation
 nvidia-smi
 
-# Verify JAX sees GPU
-python -c "import jax; print(jax.devices())"
+# Verify CuPy sees GPU
+python -c "import cupy as cp; print('CUDA available:', cp.cuda.is_available()); print('Device count:', cp.cuda.runtime.getDeviceCount())"
 
 # Run GPU test
-python test_jax_setup.py
+python test_cupy_setup.py
 ```
 
 ### Memory Issues
-- **Reduce batch size** in `reverse_engineer_gravity.py` (line ~400)
+- **Reduce batch size** in `reverse_engineer_gravity_cupy.py` (line ~400)
 - **Monitor GPU memory** with `nvidia-smi`
 - **Close other GPU applications** during training
 
