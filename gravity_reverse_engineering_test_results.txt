@@ -1,0 +1,24 @@
+CuPy version: 13.5.1
+CUDA available: True
+Device count: 1
+Using device: <CUDA Device 0>
+GPU Memory: 31.8 GB total
+============================================================
+REVERSE ENGINEERING GRAVITY FROM GAIA DATA (CuPy GPU TEST)
+============================================================
+Running 50-epoch test to verify GPU acceleration
+Loading Gaia data...
+Successfully loaded 144000 total stars
+Filtered to 143232 stars in 6-18 kpc range
+Preparing training data...
+Traceback (most recent call last):
+  File "C:\Users\henry\Documents\GitHub\ReverseEngineerGravity\reverse_engineer_gravity_cupy_test.py", line 428, in <module>
+    main()
+  File "C:\Users\henry\Documents\GitHub\ReverseEngineerGravity\reverse_engineer_gravity_cupy_test.py", line 392, in main
+    n_train, n_val = trainer.prepare_data()
+  File "C:\Users\henry\Documents\GitHub\ReverseEngineerGravity\reverse_engineer_gravity_cupy_test.py", line 234, in prepare_data
+    self.engineer.derive_empirical_xi()
+  File "C:\Users\henry\Documents\GitHub\ReverseEngineerGravity\reverse_engineer_gravity_cupy_test.py", line 114, in derive_empirical_xi
+      File "C:\Users\henry\AppData\Local\Programs\Python\Python310\lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+UnicodeEncodeError: 'charmap' codec can't encode character '\u03be' in position 19: character maps to <undefined>

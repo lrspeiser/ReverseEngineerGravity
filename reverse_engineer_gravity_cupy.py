@@ -25,7 +25,7 @@ import os
 print(f"CuPy version: {cp.__version__}")
 print(f"CUDA available: {cp.cuda.is_available()}")
 print(f"Device count: {cp.cuda.runtime.getDeviceCount()}")
-print(f"Using device: {cp.cuda.Device(0).name}")
+print(f"Using device: {cp.cuda.Device(0)}")
 
 # Set random seed for reproducibility
 cp.random.seed(42)

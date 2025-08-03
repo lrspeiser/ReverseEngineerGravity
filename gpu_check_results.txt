@@ -1,0 +1,10 @@
+CuPy imported successfully
+CUDA Available: True
+GPU Device: <CUDA Device 0>
+GPU Memory: 31.8 GB total
+Device detected: <CUDA Device 0>
+CuPy Version: 13.5.1
+
+Testing basic GPU operation...
+ERROR: Unexpected error: 'charmap' codec can't encode character '\u2713' in position 23: character maps to <undefined>
+GPU check failed.
