@@ -3,4 +3,5 @@ numpy
 pandas
 matplotlib
 scipy
-scikit-learn 
+scikit-learn
+psutil 
