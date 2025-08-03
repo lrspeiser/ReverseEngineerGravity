@@ -29,37 +29,38 @@ ReverseEngineerGravity/
 
 ## 🚀 Quick Start
 
-### 1. Set up the environment
+### 1. Install JAX with CUDA support (for RTX 5090)
 ```bash
-conda activate gravity_reverse
+# On Windows:
+install_jax.bat
+
+# On Linux/Mac:
+chmod +x install_jax.sh
+./install_jax.sh
+
+# Or manually:
+pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install flax optax numpy pandas matplotlib scipy scikit-learn
 ```
 
-### 2. Create Gaia data summary
+### 2. Verify GPU setup
+```bash
+python -c "import jax; print('JAX devices:', jax.devices())"
+```
+
+### 3. Create Gaia data summary
 ```bash
 cd scripts
 python create_gaia_summary.py
 ```
 
-### 3. Analyze the summary data
+### 4. Analyze the summary data
 ```bash
 cd analysis
 python analyze_gaia_summary.py
 ```
 
-### 4. Test the reverse engineering code (optional)
-```bash
-cd scripts
-python test_reverse_engineering.py
-```
-
-### 5. Performance testing (recommended)
-```bash
-cd scripts
-python performance_test.py          # Estimate training time and see sample results
-python device_comparison.py         # Compare M1 vs 5090 performance
-```
-
-### 6. Run gravity reverse engineering
+### 5. Run gravity reverse engineering (5000 epochs on GPU)
 ```bash
 python reverse_engineer_gravity.py
 ```
@@ -134,14 +135,18 @@ This data is suitable for:
 - Produces comprehensive reports
 
 ### `reverse_engineer_gravity.py`
-- Main gravity reverse engineering script
+- Main gravity reverse engineering script (JAX GPU-accelerated)
 - Uses processed Gaia data for physics analysis
 - Implements neural network-based gravity modeling
+- Trains for 5000 epochs on RTX 5090 GPU
+- Extracts analytical gravity formulas from trained model
 
 ## 📋 Requirements
 
-- Python 3.10
-- PyTorch
+- Python 3.10+
+- JAX with CUDA 12 support (for RTX 5090)
+- Flax (neural network library)
+- Optax (optimization library)
 - NumPy, Pandas, Matplotlib
 - SciPy, Scikit-learn
 - Astropy

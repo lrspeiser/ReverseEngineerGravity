@@ -1,0 +1,9 @@
+jax[cuda12_pip]
+jaxlib[cuda12_pip]
+flax
+optax
+numpy
+pandas
+matplotlib
+scipy
+scikit-learn 

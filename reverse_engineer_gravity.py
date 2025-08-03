@@ -3,52 +3,47 @@
 reverse_engineer_gravity.py
 
 Reverse engineer the formula for gravity from Gaia rotation curve data
-using GPU-accelerated machine learning.
+using JAX GPU-accelerated machine learning.
 
 Requirements:
-- PyTorch with CUDA support
+- JAX with CUDA support
 - numpy, pandas, matplotlib
 - scikit-learn
 """
 
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
+import jax
+import jax.numpy as jnp
+from jax import grad, jit, vmap
+import optax
+from flax import linen as nn
+from flax.training import train_state
 import matplotlib.pyplot as plt
 from scipy.interpolate import UnivariateSpline
 from scipy.optimize import curve_fit
 import time
 from pathlib import Path
+import os
 
-# Check GPU availability
-if torch.cuda.is_available():
-    device = torch.device('cuda')
-    print(f"Using device: {device}")
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-    print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
-elif torch.backends.mps.is_available():
-    device = torch.device('mps')
-    print(f"Using device: {device}")
-    print("GPU: Apple M1 (MPS)")
-else:
-    device = torch.device('cpu')
-    print(f"Using device: {device}")
-    print("GPU: CPU only")
+# Configure JAX for GPU
+jax.config.update('jax_platform_name', 'gpu')
+print(f"JAX version: {jax.__version__}")
+print(f"Available devices: {jax.devices()}")
+print(f"Using device: {jax.devices()[0]}")
+
+# Set random seed for reproducibility
+key = jax.random.PRNGKey(42)
 
 class GravityReverseEngineer:
     """Main class for reverse engineering gravity from rotation curves."""
     
     def __init__(self, gaia_data_path='data/gaia_processed/gaia_processed_data.csv'):
         # Handle relative paths when running from different directories
-        import os
         if not os.path.exists(gaia_data_path):
             # Try parent directory
             gaia_data_path = os.path.join('..', gaia_data_path)
         self.gaia_data_path = gaia_data_path
-        self.device = device
         
         # Physical constants
         self.G = 4.302e-6  # kpc³/M_sun/Myr²
@@ -145,28 +140,29 @@ class GravityReverseEngineer:
 class PhysicsInformedNN(nn.Module):
     """Neural network that learns xi(ρ, R) with physical constraints."""
     
-    def __init__(self, hidden_layers=[64, 64, 32]):
-        super().__init__()
+    hidden_layers: list = None
+    
+    def setup(self):
+        if self.hidden_layers is None:
+            self.hidden_layers = [64, 64, 32]
         
-        # Input: [log(ρ), R/R_sun, z/kpc]
-        layers = []
+        # Create network layers
+        self.layers = []
         input_size = 3
         
-        for i, hidden_size in enumerate(hidden_layers):
-            layers.append(nn.Linear(input_size if i == 0 else hidden_layers[i-1], hidden_size))
-            layers.append(nn.ReLU())
-            layers.append(nn.Dropout(0.1))
+        for i, hidden_size in enumerate(self.hidden_layers):
+            self.layers.append(nn.Dense(hidden_size))
+            input_size = hidden_size
         
-        layers.append(nn.Linear(hidden_layers[-1], 1))
-        
-        self.network = nn.Sequential(*layers)
+        # Output layer
+        self.output_layer = nn.Dense(1)
         
         # Learnable parameters for analytical constraints
-        self.rho_c = nn.Parameter(torch.tensor(12.0))  # log10(rho_c)
-        self.n_exp = nn.Parameter(torch.tensor(1.5))
-        self.A_boost = nn.Parameter(torch.tensor(2.0))
+        self.rho_c = self.param('rho_c', nn.initializers.constant(12.0), (1,))
+        self.n_exp = self.param('n_exp', nn.initializers.constant(1.5), (1,))
+        self.A_boost = self.param('A_boost', nn.initializers.constant(2.0), (1,))
         
-    def forward(self, rho, R, z=None):
+    def __call__(self, rho, R, z=None, training=False):
         """
         Forward pass computing xi.
         
@@ -176,44 +172,65 @@ class PhysicsInformedNN(nn.Module):
         - z: height above plane in kpc
         """
         if z is None:
-            z = torch.zeros_like(R)
+            z = jnp.zeros_like(R)
         
         # Prepare inputs (normalize and log-transform)
-        log_rho = torch.log10(rho + 1e-10)
+        log_rho = jnp.log10(rho + 1e-10)
         R_norm = R / 8.0  # Normalize by R_sun
         z_norm = z / 0.5  # Normalize by scale height
         
-        inputs = torch.stack([log_rho, R_norm, z_norm], dim=-1)
+        inputs = jnp.stack([log_rho, R_norm, z_norm], axis=-1)
         
         # Neural network output
-        nn_output = self.network(inputs).squeeze()
+        x = inputs
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            x = jax.nn.relu(x)
+            if training:
+                x = nn.Dropout(0.1, deterministic=False)(x)
+        
+        nn_output = self.output_layer(x).squeeze()
         
         # Physics-based modulation
-        rho_ratio = rho / (10**self.rho_c)
-        density_factor = 1 / (1 + rho_ratio**self.n_exp)
+        rho_ratio = rho / (10**self.rho_c[0])
+        density_factor = 1 / (1 + rho_ratio**self.n_exp[0])
         
         # Combine NN with physics
-        xi = 1 + self.A_boost * torch.sigmoid(nn_output) * density_factor
+        xi = 1 + self.A_boost[0] * jax.nn.sigmoid(nn_output) * density_factor
         
         return xi
     
-    def cassini_constraint(self):
+    def cassini_constraint(self, params):
         """Calculate Cassini constraint violation."""
-        rho_saturn = torch.tensor([2.3e21], device=self.network[0].weight.device)
-        R_saturn = torch.tensor([9.5e-6], device=self.network[0].weight.device)  # AU to kpc        
-        xi_saturn = self.forward(rho_saturn, R_saturn)
+        rho_saturn = jnp.array([2.3e21])
+        R_saturn = jnp.array([9.5e-6])  # AU to kpc
+        xi_saturn = self.apply(params, rho_saturn, R_saturn)
         cassini_violation = (xi_saturn - 1.0)**2 / (2.3e-5)**2
-        
         return cassini_violation
 
 class GravityTrainer:
     """Train the physics-informed neural network."""
     
-    def __init__(self, engineer, model):
+    def __init__(self, engineer, model, key):
         self.engineer = engineer
-        self.model = model.to(device)
-        self.optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, patience=10)
+        self.model = model
+        self.key = key
+        
+        # Initialize model parameters
+        dummy_rho = jnp.array([1e10])
+        dummy_R = jnp.array([8.0])
+        self.params = self.model.init(key, dummy_rho, dummy_R)
+        
+        # Optimizer
+        self.optimizer = optax.adamw(learning_rate=1e-3, weight_decay=1e-4)
+        self.optimizer_state = self.optimizer.init(self.params)
+        
+        # Learning rate scheduler
+        self.scheduler = optax.exponential_decay(
+            init_value=1e-3,
+            transition_steps=1000,
+            decay_rate=0.95
+        )
         
     def prepare_data(self):
         """Prepare training data."""
@@ -221,230 +238,257 @@ class GravityTrainer:
         R_binned, xi_binned = self.engineer.derive_empirical_xi()
         
         # Prepare full dataset
-        R_tensor = torch.tensor(self.engineer.R_clean, dtype=torch.float32)
-        rho_tensor = torch.tensor(self.engineer.rho_clean, dtype=torch.float32)
-        xi_tensor = torch.tensor(self.engineer.xi_clean, dtype=torch.float32)
-        
-        # Create dataset
-        dataset = TensorDataset(rho_tensor, R_tensor, xi_tensor)
+        self.R_data = jnp.array(self.engineer.R_clean, dtype=jnp.float32)
+        self.rho_data = jnp.array(self.engineer.rho_clean, dtype=jnp.float32)
+        self.xi_data = jnp.array(self.engineer.xi_clean, dtype=jnp.float32)
         
         # Split train/val
-        train_size = int(0.8 * len(dataset))
-        val_size = len(dataset) - train_size
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+        n_train = int(0.8 * len(self.R_data))
+        indices = jnp.arange(len(self.R_data))
+        train_indices = indices[:n_train]
+        val_indices = indices[n_train:]
         
-        # Create dataloaders
-        self.train_loader = DataLoader(train_dataset, batch_size=1024, shuffle=True)
-        self.val_loader = DataLoader(val_dataset, batch_size=1024, shuffle=False)
+        self.train_data = {
+            'R': self.R_data[train_indices],
+            'rho': self.rho_data[train_indices],
+            'xi': self.xi_data[train_indices]
+        }
         
-        return train_dataset, val_dataset
+        self.val_data = {
+            'R': self.R_data[val_indices],
+            'rho': self.rho_data[val_indices],
+            'xi': self.xi_data[val_indices]
+        }
+        
+        return len(train_indices), len(val_indices)
+
+    @staticmethod
+    @jit
+    def compute_loss(params, model, rho, R, xi_target, cassini_weight=100.0):
+        """Compute loss function."""
+        # Forward pass
+        xi_pred = model.apply(params, rho, R)
+        
+        # MSE loss
+        mse_loss = jnp.mean((xi_pred - xi_target)**2)
+        
+        # Cassini constraint
+        rho_saturn = jnp.array([2.3e21])
+        R_saturn = jnp.array([9.5e-6])
+        xi_saturn = model.apply(params, rho_saturn, R_saturn)
+        cassini_loss = (xi_saturn - 1.0)**2 / (2.3e-5)**2
+        
+        # Physical regularization
+        rho_c = params['params']['rho_c'][0]
+        n_exp = params['params']['n_exp'][0]
+        A_boost = params['params']['A_boost'][0]
+        
+        reg_loss = 0.01 * (jnp.abs(n_exp - 1.5) + jnp.abs(A_boost - 2.0))
+        
+        # Total loss
+        total_loss = mse_loss + cassini_weight * cassini_loss + reg_loss
+        
+        return total_loss, (mse_loss, cassini_loss, reg_loss)
+
+    @staticmethod
+    @jit
+    def update_step(params, optimizer_state, optimizer, model, rho, R, xi_target, cassini_weight=100.0):
+        """Single training step."""
+        loss, grads = grad(GravityTrainer.compute_loss, has_aux=True)(
+            params, model, rho, R, xi_target, cassini_weight
+        )
+        
+        updates, new_optimizer_state = optimizer.update(grads, optimizer_state)
+        new_params = optax.apply_updates(params, updates)
+        
+        return new_params, new_optimizer_state, loss
 
     def validate_model_physics(self):
-            """Validate that the model captures key physics before formula extraction."""
-            print("\n" + "="*60)
-            print("VALIDATING MODEL PHYSICS")
-            print("="*60)
+        """Validate that the model captures key physics before formula extraction."""
+        print("\n" + "="*60)
+        print("VALIDATING MODEL PHYSICS")
+        print("="*60)
+        
+        validation_passed = True
+        metrics = {}
+        
+        # Test 1: Cassini constraint
+        rho_saturn = jnp.array([2.3e21])
+        R_saturn = jnp.array([9.5e-6])  # AU in kpc
+        xi_saturn = self.model.apply(self.params, rho_saturn, R_saturn).item()
+        cassini_deviation = abs(xi_saturn - 1.0)
+        
+        metrics['cassini_deviation'] = cassini_deviation
+        print(f"\n1. Cassini constraint:")
+        print(f"   ξ(Saturn) = {xi_saturn:.8f}")
+        print(f"   Deviation = {cassini_deviation:.2e}")
+        print(f"   Status: {'✓ PASS' if cassini_deviation < 1e-5 else '✗ FAIL'}")
+        if cassini_deviation > 1e-5:
+            validation_passed = False
             
-            validation_passed = True
-            metrics = {}
+        # Test 2: Galaxy edge enhancement
+        # Inner galaxy
+        rho_inner = jnp.array([self.engineer.calculate_density(6.0)])
+        R_inner = jnp.array([6.0])
+        xi_inner = self.model.apply(self.params, rho_inner, R_inner).item()
+        
+        # Solar neighborhood
+        rho_solar = jnp.array([self.engineer.calculate_density(8.0)])
+        R_solar = jnp.array([8.0])
+        xi_solar = self.model.apply(self.params, rho_solar, R_solar).item()
+        
+        # Galaxy edge
+        rho_edge = jnp.array([self.engineer.calculate_density(15.0)])
+        R_edge = jnp.array([15.0])
+        xi_edge = self.model.apply(self.params, rho_edge, R_edge).item()
+        
+        metrics['xi_inner'] = xi_inner
+        metrics['xi_solar'] = xi_solar
+        metrics['xi_edge'] = xi_edge
+        
+        print(f"\n2. Galactic gradient:")
+        print(f"   ξ(6 kpc) = {xi_inner:.3f}")
+        print(f"   ξ(8 kpc) = {xi_solar:.3f}")
+        print(f"   ξ(15 kpc) = {xi_edge:.3f}")
+        
+        # Check for proper enhancement gradient
+        enhancement_gradient = xi_edge > xi_solar > xi_inner > 1.0
+        min_edge_enhancement = (xi_edge - 1.0) > 0.5  # At least 50% enhancement at edge
+        
+        print(f"   Gradient check: {'✓ PASS' if enhancement_gradient else '✗ FAIL'}")
+        print(f"   Edge enhancement: {(xi_edge-1)*100:.1f}% {'✓ PASS' if min_edge_enhancement else '✗ FAIL (need >50%)'}")
+        
+        if not enhancement_gradient or not min_edge_enhancement:
+            validation_passed = False
             
-            # Test 1: Cassini constraint
-            with torch.no_grad():
-                rho_saturn = torch.tensor([2.3e21], device=device)
-                R_saturn = torch.tensor([9.5e-6], device=device)  # AU in kpc
-                xi_saturn = self.model(rho_saturn, R_saturn).item()
-                cassini_deviation = abs(xi_saturn - 1.0)
-                
-            metrics['cassini_deviation'] = cassini_deviation
-            print(f"\n1. Cassini constraint:")
-            print(f"   ξ(Saturn) = {xi_saturn:.8f}")
-            print(f"   Deviation = {cassini_deviation:.2e}")
-            print(f"   Status: {'✓ PASS' if cassini_deviation < 1e-5 else '✗ FAIL'}")
+        # Test 3: Rotation curve fit quality
+        print(f"\n3. Rotation curve fit:")
+        
+        # Calculate predicted vs observed velocities
+        R_test = np.linspace(6, 18, 50)
+        v_newton = self.engineer.calculate_newtonian_velocity(R_test)
+        
+        R_tensor = jnp.array(R_test, dtype=jnp.float32)
+        rho_tensor = jnp.array(self.engineer.calculate_density(R_test), dtype=jnp.float32)
+        xi_pred = self.model.apply(self.params, rho_tensor, R_tensor)
+        
+        v_model = v_newton * np.sqrt(np.array(xi_pred))
+        
+        # Compare to empirical data in same range
+        mask = (self.engineer.R_data >= 6) & (self.engineer.R_data <= 18)
+        R_emp = self.engineer.R_data[mask]
+        v_emp = self.engineer.v_data[mask]
+        
+        # Interpolate model to empirical points
+        v_model_at_data = np.interp(R_emp, R_test, v_model)
+        
+        # Calculate metrics
+        rmse = np.sqrt(np.mean((v_model_at_data - v_emp)**2))
+        relative_error = np.mean(np.abs(v_model_at_data - v_emp) / v_emp) * 100
+        
+        metrics['velocity_rmse'] = rmse
+        metrics['velocity_relative_error'] = relative_error
+        
+        print(f"   RMSE = {rmse:.1f} km/s")
+        print(f"   Mean relative error = {relative_error:.1f}%")
+        print(f"   Status: {'✓ PASS' if relative_error < 10 else '✗ FAIL (need <10%)'}")
+        
+        if relative_error > 10:
+            validation_passed = False
+            
+        # Test 4: Check if model learned non-trivial solution
+        print(f"\n4. Non-trivial solution check:")
+        
+        # Check variance in xi across parameter space
+        R_sample = jnp.array(np.random.uniform(5, 20, 100), dtype=jnp.float32)
+        rho_sample = jnp.array(10**np.random.uniform(9, 13, 100), dtype=jnp.float32)
+        xi_sample = self.model.apply(self.params, rho_sample, R_sample)
+        
+        xi_variance = np.var(np.array(xi_sample))
+        xi_range = np.max(np.array(xi_sample)) - np.min(np.array(xi_sample))
+        
+        metrics['xi_variance'] = xi_variance
+        metrics['xi_range'] = xi_range
+        
+        print(f"   ξ variance = {xi_variance:.4f}")
+        print(f"   ξ range = {xi_range:.3f}")
+        print(f"   Status: {'✓ PASS' if xi_variance > 0.01 else '✗ FAIL (model is too flat!)'}")
+        
+        if xi_variance < 0.01:
+            validation_passed = False
+            print("\n   ⚠️  Model has converged to trivial solution (ξ ≈ constant)")
+            
+        # Overall assessment
+        print("\n" + "="*60)
+        print(f"OVERALL VALIDATION: {'✓ PASSED' if validation_passed else '✗ FAILED'}")
+        print("="*60)
+        
+        if not validation_passed:
+            print("\n⚠️  Model needs more training or parameter tuning!")
+            print("Recommendations:")
             if cassini_deviation > 1e-5:
-                validation_passed = False
-                
-            # Test 2: Galaxy edge enhancement
-            with torch.no_grad():
-                # Inner galaxy
-                rho_inner = torch.tensor([self.engineer.calculate_density(6.0)], device=device)
-                R_inner = torch.tensor([6.0], device=device)
-                xi_inner = self.model(rho_inner, R_inner).item()
-                
-                # Solar neighborhood
-                rho_solar = torch.tensor([self.engineer.calculate_density(8.0)], device=device)
-                R_solar = torch.tensor([8.0], device=device)
-                xi_solar = self.model(rho_solar, R_solar).item()
-                
-                # Galaxy edge
-                rho_edge = torch.tensor([self.engineer.calculate_density(15.0)], device=device)
-                R_edge = torch.tensor([15.0], device=device)
-                xi_edge = self.model(rho_edge, R_edge).item()
-                
-            metrics['xi_inner'] = xi_inner
-            metrics['xi_solar'] = xi_solar
-            metrics['xi_edge'] = xi_edge
-            
-            print(f"\n2. Galactic gradient:")
-            print(f"   ξ(6 kpc) = {xi_inner:.3f}")
-            print(f"   ξ(8 kpc) = {xi_solar:.3f}")
-            print(f"   ξ(15 kpc) = {xi_edge:.3f}")
-            
-            # Check for proper enhancement gradient
-            enhancement_gradient = xi_edge > xi_solar > xi_inner > 1.0
-            min_edge_enhancement = (xi_edge - 1.0) > 0.5  # At least 50% enhancement at edge
-            
-            print(f"   Gradient check: {'✓ PASS' if enhancement_gradient else '✗ FAIL'}")
-            print(f"   Edge enhancement: {(xi_edge-1)*100:.1f}% {'✓ PASS' if min_edge_enhancement else '✗ FAIL (need >50%)'}")
-            
-            if not enhancement_gradient or not min_edge_enhancement:
-                validation_passed = False
-                
-            # Test 3: Rotation curve fit quality
-            print(f"\n3. Rotation curve fit:")
-            
-            # Calculate predicted vs observed velocities
-            R_test = np.linspace(6, 18, 50)
-            v_newton = self.engineer.calculate_newtonian_velocity(R_test)
-            
-            with torch.no_grad():
-                R_tensor = torch.tensor(R_test, dtype=torch.float32).to(device)
-                rho_tensor = torch.tensor(self.engineer.calculate_density(R_test), dtype=torch.float32).to(device)
-                xi_pred = self.model(rho_tensor, R_tensor).cpu().numpy()
-            
-            v_model = v_newton * np.sqrt(xi_pred)
-            
-            # Compare to empirical data in same range
-            mask = (self.engineer.R_data >= 6) & (self.engineer.R_data <= 18)
-            R_emp = self.engineer.R_data[mask]
-            v_emp = self.engineer.v_data[mask]
-            
-            # Interpolate model to empirical points
-            v_model_at_data = np.interp(R_emp, R_test, v_model)
-            
-            # Calculate metrics
-            rmse = np.sqrt(np.mean((v_model_at_data - v_emp)**2))
-            relative_error = np.mean(np.abs(v_model_at_data - v_emp) / v_emp) * 100
-            
-            metrics['velocity_rmse'] = rmse
-            metrics['velocity_relative_error'] = relative_error
-            
-            print(f"   RMSE = {rmse:.1f} km/s")
-            print(f"   Mean relative error = {relative_error:.1f}%")
-            print(f"   Status: {'✓ PASS' if relative_error < 10 else '✗ FAIL (need <10%)'}")
-            
-            if relative_error > 10:
-                validation_passed = False
-                
-            # Test 4: Check if model learned non-trivial solution
-            print(f"\n4. Non-trivial solution check:")
-            
-            # Check variance in xi across parameter space
-            with torch.no_grad():
-                R_sample = torch.tensor(np.random.uniform(5, 20, 100), dtype=torch.float32).to(device)
-                rho_sample = torch.tensor(10**np.random.uniform(9, 13, 100), dtype=torch.float32).to(device)
-                xi_sample = self.model(rho_sample, R_sample).cpu().numpy()
-            
-            xi_variance = np.var(xi_sample)
-            xi_range = np.max(xi_sample) - np.min(xi_sample)
-            
-            metrics['xi_variance'] = xi_variance
-            metrics['xi_range'] = xi_range
-            
-            print(f"   ξ variance = {xi_variance:.4f}")
-            print(f"   ξ range = {xi_range:.3f}")
-            print(f"   Status: {'✓ PASS' if xi_variance > 0.01 else '✗ FAIL (model is too flat!)'}")
-            
+                print("  - Increase Cassini constraint weight")
+            if not enhancement_gradient:
+                print("  - Check learning rate and network architecture")
             if xi_variance < 0.01:
-                validation_passed = False
-                print("\n   ⚠️  Model has converged to trivial solution (ξ ≈ constant)")
+                print("  - Model may be stuck in local minimum")
+                print("  - Try different initialization or learning rate schedule")
+            if relative_error > 10:
+                print("  - Train for more epochs")
+                print("  - Adjust loss function weights")
                 
-            # Overall assessment
-            print("\n" + "="*60)
-            print(f"OVERALL VALIDATION: {'✓ PASSED' if validation_passed else '✗ FAILED'}")
-            print("="*60)
-            
-            if not validation_passed:
-                print("\n⚠️  Model needs more training or parameter tuning!")
-                print("Recommendations:")
-                if cassini_deviation > 1e-5:
-                    print("  - Increase Cassini constraint weight")
-                if not enhancement_gradient:
-                    print("  - Check learning rate and network architecture")
-                if xi_variance < 0.01:
-                    print("  - Model may be stuck in local minimum")
-                    print("  - Try different initialization or learning rate schedule")
-                if relative_error > 10:
-                    print("  - Train for more epochs")
-                    print("  - Adjust loss function weights")
-                    
-            return validation_passed, metrics
+        return validation_passed, metrics
     
-    def train(self, epochs=1000, cassini_weight=100.0):
+    def train(self, epochs=5000, cassini_weight=100.0):
         """Train the model."""
-        print(f"\nTraining on {device}...")
+        print(f"\nTraining on JAX GPU for {epochs} epochs...")
         
         train_losses = []
         val_losses = []
         
+        # Compile training step
+        train_step = jit(self.update_step)
+        
         for epoch in range(epochs):
             # Training
-            self.model.train()
-            train_loss = 0.0
+            batch_size = min(1024, len(self.train_data['R']))
+            indices = jax.random.permutation(self.key, len(self.train_data['R']))[:batch_size]
             
-            for rho, R, xi_target in self.train_loader:
-                rho, R, xi_target = rho.to(device), R.to(device), xi_target.to(device)
-                
-                self.optimizer.zero_grad()
-                
-                # Forward pass
-                xi_pred = self.model(rho, R)
-                
-                # MSE loss
-                mse_loss = nn.MSELoss()(xi_pred, xi_target)
-                
-                # Cassini constraint
-                cassini_loss = self.model.cassini_constraint()
-                
-                # Physical regularization
-                reg_loss = 0.01 * (torch.abs(self.model.n_exp - 1.5) + 
-                                   torch.abs(self.model.A_boost - 2.0))
-                
-                # Total loss
-                loss = mse_loss + cassini_weight * cassini_loss + reg_loss
-                
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-                self.optimizer.step()
-                
-                train_loss += loss.item()
+            rho_batch = self.train_data['rho'][indices]
+            R_batch = self.train_data['R'][indices]
+            xi_batch = self.train_data['xi'][indices]
+            
+            self.params, self.optimizer_state, train_loss = train_step(
+                self.params, self.optimizer_state, self.optimizer, self.model, 
+                rho_batch, R_batch, xi_batch, cassini_weight
+            )
             
             # Validation
-            self.model.eval()
-            val_loss = 0.0
+            val_loss, _ = self.compute_loss(
+                self.params, self.model,
+                self.val_data['rho'], self.val_data['R'], self.val_data['xi'],
+                cassini_weight
+            )
             
-            with torch.no_grad():
-                for rho, R, xi_target in self.val_loader:
-                    rho, R, xi_target = rho.to(device), R.to(device), xi_target.to(device)
-                    xi_pred = self.model(rho, R)
-                    val_loss += nn.MSELoss()(xi_pred, xi_target).item()
+            train_losses.append(float(train_loss))
+            val_losses.append(float(val_loss))
             
-            train_loss /= len(self.train_loader)
-            val_loss /= len(self.val_loader)
-            
-            train_losses.append(train_loss)
-            val_losses.append(val_loss)
-            
-            self.scheduler.step(val_loss)
-            
-            if epoch % 50 == 0:
+            if epoch % 100 == 0:
                 print(f"Epoch {epoch}: Train Loss = {train_loss:.4f}, Val Loss = {val_loss:.4f}")
-                print(f"  Parameters: rho_c = 10^{self.model.rho_c.item():.2f}, "
-                      f"n = {self.model.n_exp.item():.2f}, A = {self.model.A_boost.item():.2f}")
+                
+                # Get current parameters
+                rho_c = self.params['params']['rho_c'][0]
+                n_exp = self.params['params']['n_exp'][0]
+                A_boost = self.params['params']['A_boost'][0]
+                
+                print(f"  Parameters: rho_c = 10^{rho_c:.2f}, "
+                      f"n = {n_exp:.2f}, A = {A_boost:.2f}")
                 
                 # Check Cassini
-                with torch.no_grad():
-                    cassini = self.model.cassini_constraint().item()
-                    print(f"  Cassini violation: {cassini:.2e}")
+                cassini_loss = self.model.apply(self.params, 
+                                               jnp.array([2.3e21]), 
+                                               jnp.array([9.5e-6]))
+                print(f"  Cassini violation: {cassini_loss:.2e}")
         
         # Store for later access
         self.train_losses = train_losses
@@ -464,63 +508,24 @@ class GravityTrainer:
         R_mesh, rho_mesh = np.meshgrid(R_test, rho_test)
         
         # Evaluate model
-        with torch.no_grad():
-            R_tensor = torch.tensor(R_mesh.flatten(), dtype=torch.float32).to(device)
-            rho_tensor = torch.tensor(rho_mesh.flatten(), dtype=torch.float32).to(device)
-            xi_pred = self.model(rho_tensor, R_tensor).cpu().numpy()
+        R_flat = jnp.array(R_mesh.flatten(), dtype=jnp.float32)
+        rho_flat = jnp.array(rho_mesh.flatten(), dtype=jnp.float32)
+        xi_pred = self.model.apply(self.params, rho_flat, R_flat)
         
-        xi_mesh = xi_pred.reshape(R_mesh.shape)
-        
-        # Fit simple analytical forms
-        print("\nTrying analytical fits...")
-        
-        # 1. Extended power law
-        def extended_power_law(x, a, b, c, d, e):
-            R, log_rho = x
-            return 1 + a * (R/8)**b / (1 + 10**(c * (log_rho - d)))**e
-        
-        # 2. Double exponential
-        def double_exp(x, a, b, c, d):
-            R, log_rho = x
-            return 1 + a * (1 - np.exp(-R/b)) * np.exp(-10**(log_rho - c) / 10**d)
-        
-        # Prepare data for fitting
-        R_fit = R_mesh.flatten()
-        log_rho_fit = np.log10(rho_mesh.flatten())
-        xi_fit = xi_mesh.flatten()
-        
-        # Remove any NaN or inf
-        mask = np.isfinite(xi_fit)
-        R_fit = R_fit[mask]
-        log_rho_fit = log_rho_fit[mask]
-        xi_fit = xi_fit[mask]
-        
-        # Try fits
-        try:
-            popt1, _ = curve_fit(extended_power_law, (R_fit, log_rho_fit), xi_fit, 
-                                p0=[2, 0.5, 1, 12, 2], maxfev=5000)
-            print(f"\nExtended power law: ξ = 1 + {popt1[0]:.3f}*(R/8)^{popt1[1]:.3f} / "
-                  f"(1 + 10^({popt1[2]:.3f}*(log(ρ) - {popt1[3]:.3f})))^{popt1[4]:.3f}")
-        except:
-            print("Extended power law fit failed")
-        
-        try:
-            popt2, _ = curve_fit(double_exp, (R_fit, log_rho_fit), xi_fit,
-                                p0=[2, 10, 12, 3], maxfev=5000)
-            print(f"\nDouble exponential: ξ = 1 + {popt2[0]:.3f}*(1 - exp(-R/{popt2[1]:.3f})) * "
-                  f"exp(-ρ/10^{popt2[2]:.3f} / 10^{popt2[3]:.3f})")
-        except:
-            print("Double exponential fit failed")
+        xi_mesh = np.array(xi_pred).reshape(R_mesh.shape)
         
         # Get NN parameters
+        rho_c = self.params['params']['rho_c'][0]
+        n_exp = self.params['params']['n_exp'][0]
+        A_boost = self.params['params']['A_boost'][0]
+        
         print(f"\nNeural network base parameters:")
-        print(f"  ρ_c = 10^{self.model.rho_c.item():.3f} M☉/kpc³")
-        print(f"  n = {self.model.n_exp.item():.3f}")
-        print(f"  A = {self.model.A_boost.item():.3f}")
+        print(f"  ρ_c = 10^{rho_c:.3f} M☉/kpc³")
+        print(f"  n = {n_exp:.3f}")
+        print(f"  A = {A_boost:.3f}")
         
         return xi_mesh, R_mesh, rho_mesh
 
-        
     def extract_physics_formulas(self, validation_metrics):
         """Extract multiple candidate gravity formulas from the trained model."""
         print("\n" + "="*60)
@@ -537,76 +542,20 @@ class GravityTrainer:
         formulas = []
         
         # Get neural network parameters dynamically
-        with torch.no_grad():
-            rho_c = 10**self.model.rho_c.item()
-            n = self.model.n_exp.item()
-            A = self.model.A_boost.item()
-            
-            # Sample the model to understand its behavior
-            R_sample = np.logspace(-3, 1.5, 100)
-            rho_sample = np.logspace(8, 22, 100)
-            
-            # Get characteristic scales from model behavior
-            R_char_list = []
-            rho_char_list = []
-            
-            for rho_test in [1e9, 1e12, 1e15, 1e18, 1e21]:
-                R_tensor = torch.tensor(R_sample, dtype=torch.float32).to(device)
-                rho_tensor = torch.full_like(R_tensor, rho_test)
-                xi_values = self.model(rho_tensor, R_tensor).cpu().numpy()
-                
-                # Find where xi drops to half its maximum
-                xi_max = np.max(xi_values)
-                xi_half = (xi_max + 1) / 2
-                idx_half = np.argmin(np.abs(xi_values - xi_half))
-                if idx_half > 0 and idx_half < len(R_sample) - 1:
-                    R_char_list.append(R_sample[idx_half])
-                    
-            # Analyze density dependence
-            for R_test in [1.0, 5.0, 10.0, 15.0]:
-                R_tensor = torch.full((len(rho_sample),), R_test, dtype=torch.float32).to(device)
-                rho_tensor = torch.tensor(rho_sample, dtype=torch.float32).to(device)
-                xi_values = self.model(rho_tensor, R_tensor).cpu().numpy()
-                
-                # Find transition density
-                xi_mid = (np.max(xi_values) + np.min(xi_values)) / 2
-                idx_mid = np.argmin(np.abs(xi_values - xi_mid))
-                if idx_mid > 0 and idx_mid < len(rho_sample) - 1:
-                    rho_char_list.append(rho_sample[idx_mid])
-            
-            # Use medians as characteristic scales
-            R_char = np.median(R_char_list) if R_char_list else 10.0
-            rho_char = np.median(rho_char_list) if rho_char_list else rho_c
+        rho_c = 10**self.params['params']['rho_c'][0]
+        n = self.params['params']['n_exp'][0]
+        A = self.params['params']['A_boost'][0]
         
         print(f"\nLearned NN parameters:")
         print(f"  ρ_c = {rho_c:.2e} M☉/kpc³")
         print(f"  n = {n:.3f}")
         print(f"  A = {A:.3f}")
-        print(f"  R_characteristic ≈ {R_char:.1f} kpc")
-        print(f"  ρ_characteristic ≈ {rho_char:.2e} M☉/kpc³")
         
         # Only proceed with formula generation if A > 0.1 (non-trivial enhancement)
         if A < 0.1:
             print(f"\n⚠️  Enhancement amplitude A = {A:.3f} is too small!")
             print("Model hasn't learned significant gravity modifications.")
             return []
-        
-        # Test specific regions
-        regions = {
-            'Solar System': {'R': np.array([1e-5, 1e-4, 1e-3]), 'rho': np.array([1e21, 2.3e21, 1e22])},
-            'Galactic': {'R': np.linspace(5, 20, 50), 'rho': np.logspace(9, 13, 50)},
-            'Extreme': {'R': np.logspace(-6, 3, 100), 'rho': np.logspace(3, 25, 100)}
-        }
-        
-        # Evaluate model in each region
-        xi_data = {}
-        for region_name, region_data in regions.items():
-            R_mesh, rho_mesh = np.meshgrid(region_data['R'], region_data['rho'])
-            with torch.no_grad():
-                R_flat = torch.tensor(R_mesh.flatten(), dtype=torch.float32).to(device)
-                rho_flat = torch.tensor(rho_mesh.flatten(), dtype=torch.float32).to(device)
-                xi_flat = self.model(rho_flat, R_flat).cpu().numpy()
-            xi_data[region_name] = (R_mesh, rho_mesh, xi_flat.reshape(R_mesh.shape))
         
         # Formula 1: Modified MOND-like
         print("\n1. Modified MOND-like formula:")
@@ -632,7 +581,6 @@ class GravityTrainer:
         
         # Formula 3: Chameleon-like
         print("\n3. Chameleon-like formula:")
-        M_pl = 2.4e18  # GeV
         formula3 = {
             'name': 'Chameleon',
             'formula': lambda rho, R: 1 + A * (1 - np.tanh((rho/rho_c)**0.5)),
@@ -640,28 +588,6 @@ class GravityTrainer:
             'description': f'ξ = 1 + {A:.2f} * (1 - tanh((ρ/{rho_c:.2e})^0.5))'
         }
         formulas.append(formula3)
-        
-        # Formula 4: f(R) gravity inspired
-        print("\n4. f(R) gravity inspired formula:")
-        R_curv_0 = 1e-30  # Curvature scale
-        formula4 = {
-            'name': 'f(R) Inspired',
-            'formula': lambda rho, R: 1 + A * R**2 / (R**2 + (rho/rho_c)**(-1/3)),
-            'params': {'rho_c': rho_c, 'A': A},
-            'description': f'ξ = 1 + {A:.2f} * R² / (R² + (ρ/{rho_c:.2e})^(-1/3))'
-        }
-        formulas.append(formula4)
-        
-        # Formula 5: Emergent gravity
-        print("\n5. Emergent gravity formula:")
-        a_D = 1e-10  # de Sitter acceleration
-        formula5 = {
-            'name': 'Emergent Gravity',
-            'formula': lambda rho, R: 1 + A * np.sqrt(1 + 4/(1 + (rho/rho_c)**2)) - 1,
-            'params': {'rho_c': rho_c, 'A': A, 'a_D': a_D},
-            'description': f'ξ = 1 + {A:.2f} * (√(1 + 4/(1 + (ρ/{rho_c:.2e})²)) - 1)'
-        }
-        formulas.append(formula5)
         
         # Validate each formula
         print("\n" + "="*60)
@@ -688,18 +614,17 @@ class GravityTrainer:
             
             # Score based on matching NN predictions
             score = 0
-            with torch.no_grad():
-                test_points = 100
-                R_sample = np.random.uniform(5, 20, test_points)
-                rho_sample = 10**np.random.uniform(9, 13, test_points)
-                
-                R_tensor = torch.tensor(R_sample, dtype=torch.float32).to(device)
-                rho_tensor = torch.tensor(rho_sample, dtype=torch.float32).to(device)
-                xi_nn = self.model(rho_tensor, R_tensor).cpu().numpy()
-                xi_formula = formula['formula'](rho_sample, R_sample)
-                
-                mse = np.mean((xi_nn - xi_formula)**2)
-                score = 1 / (1 + mse)
+            test_points = 100
+            R_sample = np.random.uniform(5, 20, test_points)
+            rho_sample = 10**np.random.uniform(9, 13, test_points)
+            
+            R_tensor = jnp.array(R_sample, dtype=jnp.float32)
+            rho_tensor = jnp.array(rho_sample, dtype=jnp.float32)
+            xi_nn = self.model.apply(self.params, rho_tensor, R_tensor)
+            xi_formula = formula['formula'](rho_sample, R_sample)
+            
+            mse = np.mean((np.array(xi_nn) - xi_formula)**2)
+            score = 1 / (1 + mse)
             
             print(f"  NN match score: {score:.3f}")
             formula['score'] = score
@@ -708,28 +633,7 @@ class GravityTrainer:
         # Sort by score
         formulas.sort(key=lambda x: x['score'], reverse=True)
         
-        # Generate LaTeX
-        print("\n" + "="*60)
-        print("LATEX FORMULATIONS FOR PAPER")
-        print("="*60)
-        
-        for i, formula in enumerate(formulas[:3]):  # Top 3
-            if formula['cassini_ok']:
-                print(f"\n{i+1}. {formula['name']} (Score: {formula['score']:.3f}) ✓")
-                print("LaTeX:")
-                if formula['name'] == 'Modified MOND':
-                    print(r"  \xi = 1 + A \left(1 - \frac{1}{1 + \sqrt{a/a_0}}\right)")
-                elif formula['name'] == 'Yukawa Screening':
-                    print(r"  \xi = 1 + A \frac{e^{-R/\lambda}}{1 + (\rho/\rho_c)^n}")
-                elif formula['name'] == 'Chameleon':
-                    print(r"  \xi = 1 + A \left(1 - \tanh\sqrt{\rho/\rho_c}\right)")
-                elif formula['name'] == 'f(R) Inspired':
-                    print(r"  \xi = 1 + A \frac{R^2}{R^2 + (\rho/\rho_c)^{-1/3}}")
-                elif formula['name'] == 'Emergent Gravity':
-                    print(r"  \xi = 1 + A \left(\sqrt{1 + \frac{4}{1 + (\rho/\rho_c)^2}} - 1\right)")
-        
         return formulas
-
 
 def visualize_results(engineer, model, trainer):
     """Create comprehensive visualizations."""
@@ -746,12 +650,11 @@ def visualize_results(engineer, model, trainer):
     ax.plot(R_plot, v_newton, 'b--', label='Newtonian')
     
     # Model prediction
-    with torch.no_grad():
-        R_tensor = torch.tensor(R_plot, dtype=torch.float32).to(device)
-        rho_tensor = torch.tensor(engineer.calculate_density(R_plot), dtype=torch.float32).to(device)
-        xi_pred = model(rho_tensor, R_tensor).cpu().numpy()
+    R_tensor = jnp.array(R_plot, dtype=jnp.float32)
+    rho_tensor = jnp.array(engineer.calculate_density(R_plot), dtype=jnp.float32)
+    xi_pred = model.apply(trainer.params, rho_tensor, R_tensor)
     
-    v_model = v_newton * np.sqrt(xi_pred)
+    v_model = v_newton * np.sqrt(np.array(xi_pred))
     ax.plot(R_plot, v_model, 'r-', linewidth=2, label='Reverse engineered')
     
     ax.set_xlabel('R (kpc)')
@@ -763,7 +666,7 @@ def visualize_results(engineer, model, trainer):
     # 2. Xi enhancement vs R
     ax = axes[0, 1]
     ax.scatter(engineer.R_binned, engineer.xi_binned, s=50, label='Empirical ξ')
-    ax.plot(R_plot, xi_pred, 'r-', linewidth=2, label='Model ξ')
+    ax.plot(R_plot, np.array(xi_pred), 'r-', linewidth=2, label='Model ξ')
     ax.axhline(y=1, color='k', linestyle=':', alpha=0.5)
     ax.set_xlabel('R (kpc)')
     ax.set_ylabel('ξ enhancement')
@@ -776,12 +679,11 @@ def visualize_results(engineer, model, trainer):
     rho_range = np.logspace(3, 21, 200)
     R_fixed = 8.0  # Solar radius
     
-    with torch.no_grad():
-        rho_tensor = torch.tensor(rho_range, dtype=torch.float32).to(device)
-        R_tensor = torch.full_like(rho_tensor, R_fixed)
-        xi_vs_rho = model(rho_tensor, R_tensor).cpu().numpy()
+    rho_tensor = jnp.array(rho_range, dtype=jnp.float32)
+    R_tensor = jnp.full_like(rho_tensor, R_fixed)
+    xi_vs_rho = model.apply(trainer.params, rho_tensor, R_tensor)
     
-    ax.loglog(rho_range, xi_vs_rho - 1, 'r-', linewidth=2)
+    ax.loglog(rho_range, np.array(xi_vs_rho) - 1, 'r-', linewidth=2)
     ax.axvline(x=2.3e21, color='b', linestyle='--', label='Saturn orbit')
     ax.set_xlabel('ρ (M☉/kpc³)')
     ax.set_ylabel('ξ - 1')
@@ -795,12 +697,11 @@ def visualize_results(engineer, model, trainer):
     rho_grid = np.logspace(3, 21, 50)
     R_mesh, rho_mesh = np.meshgrid(R_grid, rho_grid)
     
-    with torch.no_grad():
-        R_flat = torch.tensor(R_mesh.flatten(), dtype=torch.float32).to(device)
-        rho_flat = torch.tensor(rho_mesh.flatten(), dtype=torch.float32).to(device)
-        xi_flat = model(rho_flat, R_flat).cpu().numpy()
+    R_flat = jnp.array(R_mesh.flatten(), dtype=jnp.float32)
+    rho_flat = jnp.array(rho_mesh.flatten(), dtype=jnp.float32)
+    xi_flat = model.apply(trainer.params, rho_flat, R_flat)
     
-    xi_mesh = xi_flat.reshape(R_mesh.shape)
+    xi_mesh = np.array(xi_flat).reshape(R_mesh.shape)
     
     im = ax.pcolormesh(R_mesh, rho_mesh, xi_mesh, shading='auto', cmap='viridis')
     ax.set_yscale('log')
@@ -836,172 +737,10 @@ def visualize_results(engineer, model, trainer):
     
     return fig
 
-def visualize_formulas(formulas, engineer, model):
-    """Visualize candidate gravity formulas."""
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    
-    # Test ranges
-    R_galactic = np.linspace(5, 20, 100)
-    R_solar = np.logspace(-6, -3, 100)  # AU scale in kpc
-    rho_galactic = engineer.calculate_density(R_galactic)
-    rho_solar = np.full_like(R_solar, 2.3e21)  # Solar system density
-    
-    # 1. Galactic scale comparison
-    ax = axes[0, 0]
-    for formula in formulas[:3]:
-        if formula['cassini_ok']:
-            xi_gal = formula['formula'](rho_galactic, R_galactic)
-            ax.plot(R_galactic, xi_gal, label=formula['name'], linewidth=2)
-    
-    # Add NN prediction
-    with torch.no_grad():
-        R_tensor = torch.tensor(R_galactic, dtype=torch.float32).to(device)
-        rho_tensor = torch.tensor(rho_galactic, dtype=torch.float32).to(device)
-        xi_nn = model(rho_tensor, R_tensor).cpu().numpy()
-    ax.plot(R_galactic, xi_nn, 'k--', label='Neural Network', linewidth=2)
-    
-    ax.set_xlabel('R (kpc)')
-    ax.set_ylabel('ξ')
-    ax.set_title('Galactic Scale Enhancement')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    # 2. Solar system scale
-    ax = axes[0, 1]
-    for formula in formulas[:3]:
-        if formula['cassini_ok']:
-            xi_solar = formula['formula'](rho_solar, R_solar)
-            deviation = (xi_solar - 1) * 1e6  # Parts per million
-            ax.semilogx(R_solar * 206265, deviation, label=formula['name'], linewidth=2)
-    
-    ax.axhline(y=23, color='r', linestyle='--', label='Cassini limit')
-    ax.axhline(y=-23, color='r', linestyle='--')
-    ax.set_xlabel('R (AU)')
-    ax.set_ylabel('(ξ - 1) × 10⁶')
-    ax.set_title('Solar System Precision')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    # 3. Density dependence
-    ax = axes[0, 2]
-    rho_range = np.logspace(5, 22, 200)
-    R_fixed = 8.0  # Solar radius
-    
-    for formula in formulas[:3]:
-        if formula['cassini_ok']:
-            xi_rho = formula['formula'](rho_range, R_fixed)
-            ax.loglog(rho_range, xi_rho - 1, label=formula['name'], linewidth=2)
-    
-    ax.axvline(x=2.3e21, color='b', linestyle=':', label='Saturn')
-    ax.set_xlabel('ρ (M☉/kpc³)')
-    ax.set_ylabel('ξ - 1')
-    ax.set_title('Density Screening')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    # 4. Acceleration scale
-    ax = axes[1, 0]
-    for formula in formulas[:3]:
-        if formula['cassini_ok']:
-            # Calculate effective acceleration
-            a_newton = 4.302e-6 * rho_galactic * R_galactic  # GM/R²
-            xi_gal = formula['formula'](rho_galactic, R_galactic)
-            a_eff = a_newton * xi_gal
-            ax.loglog(a_newton * 3.086e13 / 3.154e7, xi_gal, label=formula['name'], linewidth=2)
-    
-    ax.axvline(x=1.2e-10, color='g', linestyle='--', label='a₀ (MOND)')
-    ax.set_xlabel('a_Newton (m/s²)')
-    ax.set_ylabel('ξ')
-    ax.set_title('Enhancement vs Acceleration')
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    # 5. Parameter space
-    ax = axes[1, 1]
-    R_mesh, rho_mesh = np.meshgrid(np.linspace(5, 20, 50), np.logspace(9, 13, 50))
-    
-    best_formula = formulas[0]
-    xi_mesh = best_formula['formula'](rho_mesh, R_mesh)
-    
-    im = ax.pcolormesh(R_mesh, rho_mesh, xi_mesh, shading='auto', cmap='viridis')
-    ax.set_yscale('log')
-    ax.set_xlabel('R (kpc)')
-    ax.set_ylabel('ρ (M☉/kpc³)')
-    ax.set_title(f"Best Formula: {best_formula['name']}")
-    plt.colorbar(im, ax=ax, label='ξ')
-    
-    # 6. Residuals
-    ax = axes[1, 2]
-    with torch.no_grad():
-        test_R = np.random.uniform(6, 18, 1000)
-        test_rho = engineer.calculate_density(test_R)
-        
-        R_tensor = torch.tensor(test_R, dtype=torch.float32).to(device)
-        rho_tensor = torch.tensor(test_rho, dtype=torch.float32).to(device)
-        xi_nn = model(rho_tensor, R_tensor).cpu().numpy()
-        
-        xi_formula = best_formula['formula'](test_rho, test_R)
-        residuals = (xi_formula - xi_nn) / xi_nn * 100
-        
-    ax.hexbin(test_R, residuals, gridsize=30, cmap='RdBu', vmin=-10, vmax=10)
-    ax.axhline(y=0, color='k', linestyle='-', alpha=0.5)
-    ax.set_xlabel('R (kpc)')
-    ax.set_ylabel('Formula vs NN (%)')
-    ax.set_title(f"{best_formula['name']} Residuals")
-    ax.set_ylim(-20, 20)
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig('plots/gravity_formulas_comparison.png', dpi=150)
-    print("\nSaved formula comparisons to plots/gravity_formulas_comparison.png")
-    
-    return fig
-
-def continue_training(checkpoint_path, additional_epochs=450):
-    """Continue training from a saved checkpoint."""
-    print("="*60)
-    print("CONTINUING TRAINING FROM CHECKPOINT")
-    print("="*60)
-    
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path)
-    
-    if checkpoint.get('status') == 'validated':
-        print("This model has already been validated!")
-        return
-    
-    # Initialize components
-    engineer = GravityReverseEngineer()
-    gaia_df = engineer.load_gaia_data()
-    
-    # Create and load model
-    model = PhysicsInformedNN(hidden_layers=[128, 64, 32])
-    model.load_state_dict(checkpoint['model_state_dict'])
-    
-    # Initialize trainer
-    trainer = GravityTrainer(engineer, model)
-    trainer.prepare_data()
-    
-    print(f"\nResuming from epoch {checkpoint['epochs_trained']}")
-    print(f"Training for {additional_epochs} more epochs...")
-    
-    # Continue training
-    trainer.train(epochs=additional_epochs, cassini_weight=1000.0)
-    
-    # Re-validate
-    validation_passed, validation_metrics = trainer.validate_model_physics()
-    
-    # Save updated model
-    if validation_passed:
-        print("\n✓ Model now passes validation!")
-        # Continue with formula extraction...
-    else:
-        print("\n⚠️  Model still needs more training.")
-
 def main():
     """Main execution function."""
     print("="*60)
-    print("REVERSE ENGINEERING GRAVITY FROM GAIA DATA")
+    print("REVERSE ENGINEERING GRAVITY FROM GAIA DATA (JAX GPU)")
     print("="*60)
     
     # Initialize
@@ -1014,12 +753,13 @@ def main():
     model = PhysicsInformedNN(hidden_layers=[128, 64, 32])
     
     # Initialize trainer
-    trainer = GravityTrainer(engineer, model)
-    trainer.prepare_data()
+    trainer = GravityTrainer(engineer, model, key)
+    n_train, n_val = trainer.prepare_data()
+    print(f"Training on {n_train} samples, validating on {n_val} samples")
     
-# Train
+    # Train
     start_time = time.time()
-    trainer.train_losses, trainer.val_losses = trainer.train(epochs=50, cassini_weight=1000.0)
+    trainer.train_losses, trainer.val_losses = trainer.train(epochs=5000, cassini_weight=1000.0)
     train_time = time.time() - start_time
     print(f"\nTraining completed in {train_time:.1f} seconds")
     
@@ -1032,7 +772,7 @@ def main():
         print("="*60)
         print("\nThe model has not learned the correct physics.")
         print("Suggestions:")
-        print("1. Train for more epochs (try 500-1000)")
+        print("1. Train for more epochs (try 10000-20000)")
         print("2. Adjust learning rate (current: 1e-3)")
         print("3. Check data preprocessing")
         print("4. Modify network architecture")
@@ -1040,17 +780,6 @@ def main():
         
         # Still visualize to see what went wrong
         fig = visualize_results(engineer, model, trainer)
-        
-        # Save checkpoint
-        torch.save({
-            'model_state_dict': model.state_dict(),
-            'validation_metrics': validation_metrics,
-            'epochs_trained': 50,
-            'status': 'needs_more_training'
-        }, 'data/reverse_engineered_gravity_checkpoint.pt')
-        
-        print("\nSaved checkpoint to data/reverse_engineered_gravity_checkpoint.pt")
-        print("Load this checkpoint and continue training with more epochs.")
         
     else:
         print("\n✓ Model validation passed! Proceeding with formula extraction...")
@@ -1064,19 +793,22 @@ def main():
         if formulas:
             # Visualize
             fig = visualize_results(engineer, model, trainer)
-            fig2 = visualize_formulas(formulas, engineer, model)
             
             # Save complete model
-            torch.save({
-                'model_state_dict': model.state_dict(),
+            import pickle
+            model_data = {
+                'params': trainer.params,
                 'xi_mesh': xi_mesh,
                 'R_mesh': R_mesh,
                 'rho_mesh': rho_mesh,
                 'baryon_params': engineer.baryon_params,
                 'validation_metrics': validation_metrics,
-                'epochs_trained': 50,
+                'epochs_trained': 5000,
                 'status': 'validated'
-            }, 'data/reverse_engineered_gravity_model.pt')
+            }
+            
+            with open('data/reverse_engineered_gravity_model.pkl', 'wb') as f:
+                pickle.dump(model_data, f)
             
             # Save formulas
             import json
@@ -1103,16 +835,18 @@ def main():
     print("REVERSE ENGINEERING COMPLETE!")
     print("="*60)
     print(f"\nFinal parameters:")
-    print(f"  ρ_c = 10^{model.rho_c.item():.3f} M☉/kpc³")
-    print(f"  n = {model.n_exp.item():.3f}")
-    print(f"  A = {model.A_boost.item():.3f}")
+    rho_c = trainer.params['params']['rho_c'][0]
+    n_exp = trainer.params['params']['n_exp'][0]
+    A_boost = trainer.params['params']['A_boost'][0]
+    print(f"  ρ_c = 10^{rho_c:.3f} M☉/kpc³")
+    print(f"  n = {n_exp:.3f}")
+    print(f"  A = {A_boost:.3f}")
     
     # Check Cassini
-    with torch.no_grad():
-        rho_saturn = torch.tensor([2.3e21], device=device)
-        R_saturn = torch.tensor([9.5e-3], device=device)  # AU to kpc
-        xi_saturn = model(rho_saturn, R_saturn).item()
-        print(f"\nCassini check: ξ(Saturn) = {xi_saturn:.8f} (deviation: {abs(xi_saturn-1):.2e})")
+    rho_saturn = jnp.array([2.3e21])
+    R_saturn = jnp.array([9.5e-3])  # AU to kpc
+    xi_saturn = model.apply(trainer.params, rho_saturn, R_saturn).item()
+    print(f"\nCassini check: ξ(Saturn) = {xi_saturn:.8f} (deviation: {abs(xi_saturn-1):.2e})")
     
     # Generate formula code
     print("\nPython implementation of reverse-engineered gravity:")
@@ -1133,9 +867,9 @@ def xi_reverse_engineered(rho, R, z=0):
     z_norm = z / 0.5
     
     # Simplified analytical fit from NN
-    rho_c = 10**{model.rho_c.item():.3f}
-    n = {model.n_exp.item():.3f}
-    A = {model.A_boost.item():.3f}
+    rho_c = 10**{rho_c:.3f}
+    n = {n_exp:.3f}
+    A = {A_boost:.3f}
     
     # Core formula
     density_factor = 1 / (1 + (rho/rho_c)**n)
