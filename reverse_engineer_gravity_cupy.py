@@ -644,7 +644,7 @@ def main():
     
     # Train
     start_time = time.time()
-    trainer.train_losses, trainer.val_losses = trainer.train(epochs=5000)
+    trainer.train_losses, trainer.val_losses = trainer.train(epochs=7000)
     train_time = time.time() - start_time
     print(f"\nTraining completed in {train_time:.1f} seconds")
     
@@ -678,7 +678,7 @@ def main():
             'model': model,
             'baryon_params': engineer.baryon_params,
             'validation_metrics': validation_metrics,
-            'epochs_trained': 5000,
+            'epochs_trained': 7000,
             'status': 'validated'
         }
         

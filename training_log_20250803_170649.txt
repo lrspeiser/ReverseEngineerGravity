@@ -1,0 +1,184 @@
+2025-08-03 17:06:49,438 - INFO - CuPy version: 13.5.1
+2025-08-03 17:06:49,456 - INFO - CUDA available: True
+2025-08-03 17:06:49,456 - INFO - Device count: 1
+2025-08-03 17:06:49,456 - INFO - Using device: <CUDA Device 0>
+2025-08-03 17:06:49,533 - INFO - ============================================================
+2025-08-03 17:06:49,533 - INFO - REVERSE ENGINEERING GRAVITY FROM GAIA DATA (CuPy GPU)
+2025-08-03 17:06:49,533 - INFO - ============================================================
+2025-08-03 17:06:49,533 - INFO - Training for 7,000 epochs as recommended for 144,000 star dataset
+2025-08-03 17:06:49,534 - INFO - ============================================================
+2025-08-03 17:06:49,534 - INFO - Loading Gaia data...
+2025-08-03 17:06:49,767 - INFO - Loaded 143232 stars in 6-18 kpc range
+2025-08-03 17:06:49,804 - INFO - Preparing training data...
+2025-08-03 17:06:49,804 - INFO - Deriving empirical xi values...
+2025-08-03 17:06:49,813 - INFO - Filtered to 14798 valid points
+2025-08-03 17:06:49,813 - INFO - Xi range: 0.100 - 6.874
+2025-08-03 17:06:49,835 - INFO - Training samples: 11838
+2025-08-03 17:06:49,835 - INFO - Validation samples: 2960
+2025-08-03 17:06:49,835 - INFO - Training for 7000 epochs...
+2025-08-03 17:06:49,836 - INFO - ============================================================
+2025-08-03 17:06:50,045 - INFO - Epoch    0/7000: Train Loss = 2.4402, Val Loss = 2.4375, Time = 0.2s, ETA = 1461.6s
+2025-08-03 17:06:50,045 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:50,321 - INFO - Epoch  100/7000: Train Loss = 2.4480, Val Loss = 2.4393, Time = 0.5s, ETA = 33.1s
+2025-08-03 17:06:50,321 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:50,618 - INFO - Epoch  200/7000: Train Loss = 2.4602, Val Loss = 2.4381, Time = 0.8s, ETA = 26.5s
+2025-08-03 17:06:50,619 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:50,894 - INFO - Epoch  300/7000: Train Loss = 2.4381, Val Loss = 2.4362, Time = 1.1s, ETA = 23.5s
+2025-08-03 17:06:50,895 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:51,171 - INFO - Epoch  400/7000: Train Loss = 2.4452, Val Loss = 2.4367, Time = 1.3s, ETA = 22.0s
+2025-08-03 17:06:51,171 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:51,482 - INFO - Epoch  500/7000: Train Loss = 2.4222, Val Loss = 2.4349, Time = 1.6s, ETA = 21.4s
+2025-08-03 17:06:51,483 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:51,761 - INFO - Epoch  600/7000: Train Loss = 2.4701, Val Loss = 2.4346, Time = 1.9s, ETA = 20.5s
+2025-08-03 17:06:51,762 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:52,043 - INFO - Epoch  700/7000: Train Loss = 2.4399, Val Loss = 2.4353, Time = 2.2s, ETA = 19.8s
+2025-08-03 17:06:52,044 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:52,330 - INFO - Epoch  800/7000: Train Loss = 2.4574, Val Loss = 2.4370, Time = 2.5s, ETA = 19.3s
+2025-08-03 17:06:52,330 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:52,600 - INFO - Epoch  900/7000: Train Loss = 2.4243, Val Loss = 2.4367, Time = 2.8s, ETA = 18.7s
+2025-08-03 17:06:52,601 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:52,872 - INFO - Epoch 1000/7000: Train Loss = 2.4591, Val Loss = 2.4356, Time = 3.0s, ETA = 18.2s
+2025-08-03 17:06:52,872 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:52,879 - INFO - Checkpoint saved: checkpoint_epoch_1000.json
+2025-08-03 17:06:53,170 - INFO - Epoch 1100/7000: Train Loss = 2.4145, Val Loss = 2.4362, Time = 3.3s, ETA = 17.9s
+2025-08-03 17:06:53,171 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:53,457 - INFO - Epoch 1200/7000: Train Loss = 2.4439, Val Loss = 2.4352, Time = 3.6s, ETA = 17.5s
+2025-08-03 17:06:53,457 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:53,730 - INFO - Epoch 1300/7000: Train Loss = 2.4520, Val Loss = 2.4359, Time = 3.9s, ETA = 17.1s
+2025-08-03 17:06:53,731 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:54,004 - INFO - Epoch 1400/7000: Train Loss = 2.4207, Val Loss = 2.4371, Time = 4.2s, ETA = 16.7s
+2025-08-03 17:06:54,005 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:54,285 - INFO - Epoch 1500/7000: Train Loss = 2.4252, Val Loss = 2.4371, Time = 4.4s, ETA = 16.3s
+2025-08-03 17:06:54,286 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:54,561 - INFO - Epoch 1600/7000: Train Loss = 2.4302, Val Loss = 2.4390, Time = 4.7s, ETA = 15.9s
+2025-08-03 17:06:54,562 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:54,860 - INFO - Epoch 1700/7000: Train Loss = 2.4412, Val Loss = 2.4404, Time = 5.0s, ETA = 15.7s
+2025-08-03 17:06:54,861 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:55,130 - INFO - Epoch 1800/7000: Train Loss = 2.4410, Val Loss = 2.4397, Time = 5.3s, ETA = 15.3s
+2025-08-03 17:06:55,130 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:55,458 - INFO - Epoch 1900/7000: Train Loss = 2.4344, Val Loss = 2.4403, Time = 5.6s, ETA = 15.1s
+2025-08-03 17:06:55,459 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:55,738 - INFO - Epoch 2000/7000: Train Loss = 2.4345, Val Loss = 2.4387, Time = 5.9s, ETA = 14.7s
+2025-08-03 17:06:55,738 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:55,747 - INFO - Checkpoint saved: checkpoint_epoch_2000.json
+2025-08-03 17:06:56,028 - INFO - Epoch 2100/7000: Train Loss = 2.4557, Val Loss = 2.4390, Time = 6.2s, ETA = 14.4s
+2025-08-03 17:06:56,028 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:56,301 - INFO - Epoch 2200/7000: Train Loss = 2.4182, Val Loss = 2.4397, Time = 6.5s, ETA = 14.1s
+2025-08-03 17:06:56,302 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:56,594 - INFO - Epoch 2300/7000: Train Loss = 2.4581, Val Loss = 2.4394, Time = 6.8s, ETA = 13.8s
+2025-08-03 17:06:56,594 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:56,883 - INFO - Epoch 2400/7000: Train Loss = 2.4282, Val Loss = 2.4406, Time = 7.0s, ETA = 13.5s
+2025-08-03 17:06:56,884 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:57,162 - INFO - Epoch 2500/7000: Train Loss = 2.4154, Val Loss = 2.4398, Time = 7.3s, ETA = 13.2s
+2025-08-03 17:06:57,163 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:57,450 - INFO - Epoch 2600/7000: Train Loss = 2.4629, Val Loss = 2.4391, Time = 7.6s, ETA = 12.9s
+2025-08-03 17:06:57,451 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:57,727 - INFO - Epoch 2700/7000: Train Loss = 2.4256, Val Loss = 2.4378, Time = 7.9s, ETA = 12.6s
+2025-08-03 17:06:57,728 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:58,007 - INFO - Epoch 2800/7000: Train Loss = 2.4422, Val Loss = 2.4388, Time = 8.2s, ETA = 12.3s
+2025-08-03 17:06:58,008 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:58,335 - INFO - Epoch 2900/7000: Train Loss = 2.4542, Val Loss = 2.4392, Time = 8.5s, ETA = 12.0s
+2025-08-03 17:06:58,335 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:58,612 - INFO - Epoch 3000/7000: Train Loss = 2.4542, Val Loss = 2.4401, Time = 8.8s, ETA = 11.7s
+2025-08-03 17:06:58,612 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:58,625 - INFO - Checkpoint saved: checkpoint_epoch_3000.json
+2025-08-03 17:06:58,918 - INFO - Epoch 3100/7000: Train Loss = 2.4361, Val Loss = 2.4408, Time = 9.1s, ETA = 11.4s
+2025-08-03 17:06:58,919 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:59,192 - INFO - Epoch 3200/7000: Train Loss = 2.4159, Val Loss = 2.4384, Time = 9.4s, ETA = 11.1s
+2025-08-03 17:06:59,193 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:59,460 - INFO - Epoch 3300/7000: Train Loss = 2.4451, Val Loss = 2.4374, Time = 9.6s, ETA = 10.8s
+2025-08-03 17:06:59,469 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:06:59,774 - INFO - Epoch 3400/7000: Train Loss = 2.4414, Val Loss = 2.4394, Time = 9.9s, ETA = 10.5s
+2025-08-03 17:06:59,775 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:00,054 - INFO - Epoch 3500/7000: Train Loss = 2.4386, Val Loss = 2.4410, Time = 10.2s, ETA = 10.2s
+2025-08-03 17:07:00,054 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:00,374 - INFO - Epoch 3600/7000: Train Loss = 2.4149, Val Loss = 2.4412, Time = 10.5s, ETA = 9.9s
+2025-08-03 17:07:00,375 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:00,664 - INFO - Epoch 3700/7000: Train Loss = 2.4323, Val Loss = 2.4427, Time = 10.8s, ETA = 9.7s
+2025-08-03 17:07:00,665 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:00,953 - INFO - Epoch 3800/7000: Train Loss = 2.4780, Val Loss = 2.4438, Time = 11.1s, ETA = 9.4s
+2025-08-03 17:07:00,954 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:01,238 - INFO - Epoch 3900/7000: Train Loss = 2.4462, Val Loss = 2.4441, Time = 11.4s, ETA = 9.1s
+2025-08-03 17:07:01,239 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:01,517 - INFO - Epoch 4000/7000: Train Loss = 2.4545, Val Loss = 2.4451, Time = 11.7s, ETA = 8.8s
+2025-08-03 17:07:01,518 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:01,524 - INFO - Checkpoint saved: checkpoint_epoch_4000.json
+2025-08-03 17:07:01,805 - INFO - Epoch 4100/7000: Train Loss = 2.4446, Val Loss = 2.4447, Time = 12.0s, ETA = 8.5s
+2025-08-03 17:07:01,806 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:02,117 - INFO - Epoch 4200/7000: Train Loss = 2.4531, Val Loss = 2.4466, Time = 12.3s, ETA = 8.2s
+2025-08-03 17:07:02,118 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:02,450 - INFO - Epoch 4300/7000: Train Loss = 2.4703, Val Loss = 2.4457, Time = 12.6s, ETA = 7.9s
+2025-08-03 17:07:02,451 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:02,734 - INFO - Epoch 4400/7000: Train Loss = 2.4397, Val Loss = 2.4445, Time = 12.9s, ETA = 7.6s
+2025-08-03 17:07:02,735 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:03,012 - INFO - Epoch 4500/7000: Train Loss = 2.4579, Val Loss = 2.4436, Time = 13.2s, ETA = 7.3s
+2025-08-03 17:07:03,013 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:03,294 - INFO - Epoch 4600/7000: Train Loss = 2.4499, Val Loss = 2.4432, Time = 13.5s, ETA = 7.0s
+2025-08-03 17:07:03,295 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:03,574 - INFO - Epoch 4700/7000: Train Loss = 2.4292, Val Loss = 2.4422, Time = 13.7s, ETA = 6.7s
+2025-08-03 17:07:03,574 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:03,867 - INFO - Epoch 4800/7000: Train Loss = 2.4540, Val Loss = 2.4410, Time = 14.0s, ETA = 6.4s
+2025-08-03 17:07:03,868 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:04,144 - INFO - Epoch 4900/7000: Train Loss = 2.4462, Val Loss = 2.4429, Time = 14.3s, ETA = 6.1s
+2025-08-03 17:07:04,145 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:04,430 - INFO - Epoch 5000/7000: Train Loss = 2.4369, Val Loss = 2.4437, Time = 14.6s, ETA = 5.8s
+2025-08-03 17:07:04,431 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:04,439 - INFO - Checkpoint saved: checkpoint_epoch_5000.json
+2025-08-03 17:07:04,717 - INFO - Epoch 5100/7000: Train Loss = 2.4448, Val Loss = 2.4442, Time = 14.9s, ETA = 5.5s
+2025-08-03 17:07:04,717 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:05,032 - INFO - Epoch 5200/7000: Train Loss = 2.4468, Val Loss = 2.4450, Time = 15.2s, ETA = 5.3s
+2025-08-03 17:07:05,032 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:05,318 - INFO - Epoch 5300/7000: Train Loss = 2.4455, Val Loss = 2.4437, Time = 15.5s, ETA = 5.0s
+2025-08-03 17:07:05,318 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:05,606 - INFO - Epoch 5400/7000: Train Loss = 2.4483, Val Loss = 2.4438, Time = 15.8s, ETA = 4.7s
+2025-08-03 17:07:05,606 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:05,884 - INFO - Epoch 5500/7000: Train Loss = 2.4182, Val Loss = 2.4437, Time = 16.0s, ETA = 4.4s
+2025-08-03 17:07:05,885 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:06,195 - INFO - Epoch 5600/7000: Train Loss = 2.4523, Val Loss = 2.4425, Time = 16.4s, ETA = 4.1s
+2025-08-03 17:07:06,195 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:06,499 - INFO - Epoch 5700/7000: Train Loss = 2.4423, Val Loss = 2.4434, Time = 16.7s, ETA = 3.8s
+2025-08-03 17:07:06,500 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:06,794 - INFO - Epoch 5800/7000: Train Loss = 2.4341, Val Loss = 2.4434, Time = 17.0s, ETA = 3.5s
+2025-08-03 17:07:06,794 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:07,080 - INFO - Epoch 5900/7000: Train Loss = 2.4397, Val Loss = 2.4438, Time = 17.2s, ETA = 3.2s
+2025-08-03 17:07:07,080 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:07,360 - INFO - Epoch 6000/7000: Train Loss = 2.4297, Val Loss = 2.4425, Time = 17.5s, ETA = 2.9s
+2025-08-03 17:07:07,360 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:07,381 - INFO - Checkpoint saved: checkpoint_epoch_6000.json
+2025-08-03 17:07:07,702 - INFO - Epoch 6100/7000: Train Loss = 2.4449, Val Loss = 2.4419, Time = 17.9s, ETA = 2.6s
+2025-08-03 17:07:07,702 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:07,970 - INFO - Epoch 6200/7000: Train Loss = 2.4509, Val Loss = 2.4423, Time = 18.1s, ETA = 2.3s
+2025-08-03 17:07:07,971 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:08,306 - INFO - Epoch 6300/7000: Train Loss = 2.4531, Val Loss = 2.4432, Time = 18.5s, ETA = 2.0s
+2025-08-03 17:07:08,306 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:08,579 - INFO - Epoch 6400/7000: Train Loss = 2.4168, Val Loss = 2.4442, Time = 18.7s, ETA = 1.8s
+2025-08-03 17:07:08,579 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:08,855 - INFO - Epoch 6500/7000: Train Loss = 2.4470, Val Loss = 2.4435, Time = 19.0s, ETA = 1.5s
+2025-08-03 17:07:08,856 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:09,130 - INFO - Epoch 6600/7000: Train Loss = 2.4317, Val Loss = 2.4413, Time = 19.3s, ETA = 1.2s
+2025-08-03 17:07:09,130 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:09,440 - INFO - Epoch 6700/7000: Train Loss = 2.4341, Val Loss = 2.4435, Time = 19.6s, ETA = 0.9s
+2025-08-03 17:07:09,440 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:09,714 - INFO - Epoch 6800/7000: Train Loss = 2.4442, Val Loss = 2.4440, Time = 19.9s, ETA = 0.6s
+2025-08-03 17:07:09,715 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:09,994 - INFO - Epoch 6900/7000: Train Loss = 2.4475, Val Loss = 2.4444, Time = 20.2s, ETA = 0.3s
+2025-08-03 17:07:09,994 - INFO -   Parameters: rho_c = 10^20.00, n = 1.00, A = 0.10
+2025-08-03 17:07:10,269 - INFO - Training completed in 20.4 seconds
+2025-08-03 17:07:10,270 - INFO - Average time per epoch: 2.9 ms
+2025-08-03 17:07:10,270 - INFO - ============================================================
+2025-08-03 17:07:10,270 - INFO - TRAINING COMPLETE!
+2025-08-03 17:07:10,270 - INFO - ============================================================
+2025-08-03 17:07:10,270 - INFO - Training time: 20.4 seconds
+2025-08-03 17:07:10,270 - INFO - Final training loss: 2.4512
+2025-08-03 17:07:10,270 - INFO - Final validation loss: 2.4463
+2025-08-03 17:07:10,271 - INFO - Final parameters:
+2025-08-03 17:07:10,271 - INFO -   rho_c = 10^20.000 M_sun/kpc³
+2025-08-03 17:07:10,272 - INFO -   n = 1.001
+2025-08-03 17:07:10,272 - INFO -   A = 0.099
+2025-08-03 17:07:10,275 - ERROR - Fatal error in main: unsupported format string passed to numpy.ndarray.__format__
+2025-08-03 17:07:10,277 - ERROR - Traceback (most recent call last):
+  File "C:\Users\henry\Documents\GitHub\ReverseEngineerGravity\scripts\train_gravity_7000_epochs_logged.py", line 421, in main
+    logger.info(f"Cassini check: xi(Saturn) = {xi_saturn:.8f} (deviation: {abs(xi_saturn-1):.2e})")
+                                              ^^^^^^^^^^^^^^^
+TypeError: unsupported format string passed to numpy.ndarray.__format__
+

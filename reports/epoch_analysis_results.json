@@ -1,0 +1,61 @@
+{
+  "dataset_info": {
+    "n_stars": 143232,
+    "radial_range": [
+      6.000268734466323,
+      16.093093801614653
+    ],
+    "velocity_range": [
+      0.0387221121551509,
+      498.39975704792863
+    ],
+    "effective_dof": 342,
+    "data_quality": 0.9946666666666667
+  },
+  "convergence_epochs": {
+    "minimal": 1346,
+    "standard": 6734,
+    "thorough": 13468,
+    "exhaustive": 26936
+  },
+  "physics_constraints": {
+    "cassini": {
+      "loose": 2000,
+      "moderate": 5000,
+      "strict": 10000,
+      "exact": 15000
+    },
+    "physics": {
+      "basic": 3000,
+      "good": 7000,
+      "excellent": 12000
+    }
+  },
+  "recommendations": {
+    "minimal": {
+      "epochs": 2000,
+      "description": "Quick exploration, basic physics",
+      "expected_quality": "Basic",
+      "time_estimate": "2-5 minutes"
+    },
+    "standard": {
+      "epochs": 7000,
+      "description": "Good convergence, reliable physics",
+      "expected_quality": "Good",
+      "time_estimate": "10-15 minutes"
+    },
+    "thorough": {
+      "epochs": 13468,
+      "description": "Excellent convergence, robust physics",
+      "expected_quality": "Excellent",
+      "time_estimate": "20-30 minutes"
+    },
+    "exhaustive": {
+      "epochs": 26936,
+      "description": "Research-grade results, maximum precision",
+      "expected_quality": "Research Grade",
+      "time_estimate": "40-60 minutes"
+    }
+  },
+  "timestamp": "2025-08-03T16:52:18.148437"
+}
